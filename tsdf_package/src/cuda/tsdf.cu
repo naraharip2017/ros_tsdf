@@ -30,12 +30,12 @@ void printHashTable(HashTable * table_d, BlockHeap * blockHeap_d){
     HashEntry * hashEntries = buckets[i].hashEntries;
     for(size_t it = 0; it<HASH_ENTRIES_PER_BUCKET; ++it){
       HashEntry hashEntry = hashEntries[it];
-      Point * position = hashEntry.position;
-      if (position == NULL){
+      Point position = hashEntry.position;
+      if (position.x == 0 && position.y == 0 && position.z == 0){
         printf("  Hash Entry with   Position: (N,N,N)   Offset: %d   Pointer: %d\n", hashEntry.offset, hashEntry.pointer);
       }
       else{
-        printf("  Hash Entry with   Position: (%d,%d,%d)   Offset: %d   Pointer: %d\n", position->x, position->y, position->z, hashEntry.offset, hashEntry.pointer);
+        printf("  Hash Entry with   Position: (%d,%d,%d)   Offset: %d   Pointer: %d\n", position.x, position.y, position.z, hashEntry.offset, hashEntry.pointer);
       }
     }
     printf("%s\n", "--------------------------------------------------------");
@@ -57,7 +57,7 @@ size_t hash(Point point){ //tested using int can get negatives
 }
 
 __global__
-void pointIntegration(Point * point_d, HashTable * table_d, BlockHeap* blockHeap_d)
+void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHeap_d)
 {
   // HashTable * h = new HashTable();
   // Bucket * b = h->buckets;
@@ -67,15 +67,15 @@ void pointIntegration(Point * point_d, HashTable * table_d, BlockHeap* blockHeap
   // printf("%d\n",h->buckets[1].hashEntries[0].position.x);
   
   //check for block in table
-  // Point * point_d = points_d[threadIdx.x];
-  // printf("thread id: %d", threadIdx.x);
-  size_t index = hash(*point_d);
+  Point point_d = points_d[threadIdx.x];
+  printf("Point: (%d, %d, %d)\n", point_d.x, point_d.y, point_d.z);
+  size_t index = hash(point_d);
   Bucket * buckets = table_d->buckets;
   HashEntry * hashEntries = buckets[index].hashEntries;
   bool blockNotAllocated = true;
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
     HashEntry hashEntry = hashEntries[i];
-    if(*(hashEntry.position) == *point_d){ //what to do if positions are 0,0,0 then every initial block will map to the point
+    if(hashEntry.position == point_d){ //what to do if positions are 0,0,0 then every initial block will map to the point
       break; //todo: return reference to block
       blockNotAllocated = false; //update this to just return
       //return
@@ -89,15 +89,16 @@ void pointIntegration(Point * point_d, HashTable * table_d, BlockHeap* blockHeap
   if(blockNotAllocated){
     //locks?
     VoxelBlock * allocBlock = new VoxelBlock();
-    int blockHeapFreeIndex = blockHeap_d->currentIndex++;
+    int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
     blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
+    
+    
     HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
-
-    //Point *p = new Point(0,0,0);
+    Point *p = new Point(0,0,0);
     //lock bucket
     for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
       HashEntry hashEntry = hashEntries[i];
-      if(hashEntry.position == NULL){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
+      if(hashEntry.position == *p ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
         hashEntries[0] = *allocBlockHashEntry;
         break;
       }
@@ -109,6 +110,17 @@ void pointIntegration(Point * point_d, HashTable * table_d, BlockHeap* blockHeap
 // void initTableAndBlockHeap(){
 
 // }
+
+__global__
+void cudaTest(int * arr){
+  printf("%d", arr[threadIdx.x]);
+}
+
+size_t hashMe(Point point){ //tested using int can get negatives
+  return (((size_t)point.x * PRIME_ONE) ^
+  ((size_t)point.y * PRIME_TWO) ^
+  ((size_t)point.z * PRIME_THREE)) % NUM_BUCKETS;
+}
 
 int tsdfmain()
 {
@@ -133,21 +145,25 @@ int tsdfmain()
     // Point points[5];
     // for(int i=0;i<)
 
-    // Point * point_h[2];
-    // point_h[0] = new Point(1,1,1);
-    // point_h[1] = new Point(2,2,2);
 
-    Point * point_h = new Point(1,1,1);
+    int size= 8;
+    Point point_h[size];
+
+    for(int i=1; i<=size; ++i){
+      Point * p = new Point(i,i,i);
+      point_h[i-1] = *p;
+    }
+
+    // Point * point_h = new Point(1,1,1);
     Point * point_d;
-    cudaMalloc(&point_d, sizeof(*point_h));
-    cudaMemcpy(point_d, point_h, sizeof(*point_h), cudaMemcpyHostToDevice);
-    pointIntegration<<<1,1>>>(point_d, table_d, blockHeap_d);
-    cudaMemcpy(point_h, point_d, sizeof(*point_h), cudaMemcpyDeviceToHost);
+    cudaMalloc(&point_d, sizeof(*point_h)*size);
+    cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
+    pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
 
     printHashTable<<<1,1>>>(table_d, blockHeap_d);
 
     cudaFree(point_d);
-    free(point_h);
+    //free(point_h);
     cudaFree(table_d);
     free(table_h);
     cudaFree(blockHeap_d);

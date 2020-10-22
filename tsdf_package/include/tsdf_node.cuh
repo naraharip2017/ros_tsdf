@@ -6,7 +6,7 @@
 #define VOXEL_PER_BLOCK 5
 #define HASH_ENTRIES_PER_BUCKET 2
 #define NUM_BUCKETS 4
-#define NUM_HEAP_BLOCKS 2
+#define NUM_HEAP_BLOCKS 8
 
 #define PRIME_ONE 73856093
 #define PRIME_TWO 19349669
@@ -49,15 +49,13 @@ struct VoxelBlock{
 };
 
 struct HashEntry{
-    Point * position; //if using center position of voxels then can set this to 0 0 0 and avoid using a pointer
+    Point position; //if using center position of voxels then can set this to 0 0 0 and avoid using a pointer
     short offset;
     int pointer; //potentially be a short depending on how many indices in block heap
     __device__ __host__
-    HashEntry(){
-        position = NULL;
-    }
+    HashEntry(){}
     __device__ __host__
-    HashEntry(Point * position, int pointer):offset(0){
+    HashEntry(Point position, int pointer):offset(0){
         this->position = position;
         this->pointer = pointer;
     }
