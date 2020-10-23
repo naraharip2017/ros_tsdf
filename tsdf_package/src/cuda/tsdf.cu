@@ -59,13 +59,10 @@ size_t hash(Point point){ //tested using int can get negatives
 __global__
 void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHeap_d)
 {
-  // HashTable * h = new HashTable();
-  // Bucket * b = h->buckets;
-  // HashEntry * hashEntries = (b+1)->hashEntries;
-  // Point * p = new Point(1,1,1);
-  // hashEntries[0].position = *p;
-  // printf("%d\n",h->buckets[1].hashEntries[0].position.x);
   
+  //REMEMBER THREAD SYNCHRONIZATION
+  //CAN COPY GLOBAL MEMORY LOCALLY ANYWHERE AND THEN RESYNC WITH GLOBAL MEM?
+
   //check for block in table
   Point point_d = points_d[threadIdx.x];
   printf("Point: (%d, %d, %d)\n", point_d.x, point_d.y, point_d.z);
@@ -88,21 +85,32 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
   //allocate block
   if(blockNotAllocated){
     //locks?
-    VoxelBlock * allocBlock = new VoxelBlock();
-    int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-    blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-    
-    
-    HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
-    Point *p = new Point(0,0,0);
     //lock bucket
-    for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-      HashEntry hashEntry = hashEntries[i];
-      if(hashEntry.position == *p ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
-        hashEntries[0] = *allocBlockHashEntry;
-        break;
+    if(!atomicCAS(&table_d->mutex[index], 0, 1)){
+      // if(threadIdx.x>3){
+      //   hashEntries[1] = *allocBlockHashEntry;
+      // }
+      // else{
+      //   hashEntries[0] = *allocBlockHashEntry;
+      // }
+      VoxelBlock * allocBlock = new VoxelBlock();
+      int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
+      blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
+      
+      
+      HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
+      Point *p = new Point(0,0,0);
+      for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
+        HashEntry hashEntry = hashEntries[i];
+        if(hashEntry.position == *p ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
+          hashEntries[i] = *allocBlockHashEntry;
+          break;
+        }
       }
+      //free block here or we have another kernel in parellel reset all mutex
+      atomicExch(&table_d->mutex[index], 0);
     }
+    //printf("thread id: %d, mutex: %d\n", threadIdx.x, mutex);
   }
   return;
 }
@@ -146,8 +154,14 @@ int tsdfmain()
     // for(int i=0;i<)
 
 
-    int size= 8;
+    int size= 4;
     Point point_h[size];
+    // Point * A = new Point(1,1,1);
+    // Point * B = new Point(5,5,5);
+    // Point * C = new Point(9,9,9);
+    // point_h[0] = *A;
+    // point_h[1] = *B;
+    // point_h[2] = *C;
 
     for(int i=1; i<=size; ++i){
       Point * p = new Point(i,i,i);
@@ -157,6 +171,16 @@ int tsdfmain()
     // Point * point_h = new Point(1,1,1);
     Point * point_d;
     cudaMalloc(&point_d, sizeof(*point_h)*size);
+    cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
+    pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
+
+    printHashTable<<<1,1>>>(table_d, blockHeap_d);
+
+    for(int i=1; i<=size; ++i){
+      Point * p = new Point(i+4,i+4,i+4);
+      point_h[i-1] = *p;
+    }
+
     cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
     pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
 

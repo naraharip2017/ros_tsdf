@@ -69,6 +69,7 @@ struct Bucket{
 
 struct HashTable{
     Bucket buckets[NUM_BUCKETS]; //4
+    int mutex[NUM_BUCKETS];
     HashTable(){}
 };
 
