@@ -21,13 +21,25 @@ find_package(ament_cmake REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 FIND_PACKAGE(CUDA REQUIRED)
+find_package(PCL REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system)
 
 add_executable(tsdf_node src/tsdf_node.cpp)
 target_include_directories(tsdf_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 
-ament_target_dependencies(tsdf_node CUDA)
+ament_target_dependencies(tsdf_node 
+  "CUDA"
+  "rclcpp"
+  "sensor_msgs"
+  "pcl_conversions"
+  "std_msgs"
+  "pcl"
+)
 
 cuda_add_library(${PROJECT_NAME}_cuda SHARED
   src/cuda/tsdf.cu
@@ -35,9 +47,14 @@ cuda_add_library(${PROJECT_NAME}_cuda SHARED
 )
 target_include_directories(${PROJECT_NAME}_cuda PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>)
+  $<INSTALL_INTERFACE:include>
+  ${PCL_INCLUDE_DIRS})
 
-target_link_libraries(tsdf_node ${PROJECT_NAME}_cuda)
+target_link_libraries(tsdf_node 
+${PROJECT_NAME}_cuda
+${Boost_SYSTEM_LIBRARY}  # pcl_conversions requires this
+${PCL_LIBRARIES}
+)
 
 ament_export_interfaces(${PROJECT_NAME}_cuda HAS_LIBRARY_TARGET)
 

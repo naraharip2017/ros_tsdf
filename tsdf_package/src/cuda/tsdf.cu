@@ -26,7 +26,7 @@ __global__
 void printHashTable(HashTable * table_d, BlockHeap * blockHeap_d){
   Bucket * buckets = table_d->buckets;
   for(size_t i=0;i<NUM_BUCKETS; ++i){
-    printf("Bucket: %d\n", i);
+    printf("Bucket: %lu\n", (unsigned long)i);
     HashEntry * hashEntries = buckets[i].hashEntries;
     for(size_t it = 0; it<HASH_ENTRIES_PER_BUCKET; ++it){
       HashEntry hashEntry = hashEntries[it];
@@ -65,8 +65,8 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
 
   //check for block in table
   Point point_d = points_d[threadIdx.x];
-  printf("Point: (%d, %d, %d)\n", point_d.x, point_d.y, point_d.z);
   size_t index = hash(point_d);
+  printf("Point: (%d, %d, %d), Index: %lu\n", point_d.x, point_d.y, point_d.z, (unsigned long)index);
   Bucket * buckets = table_d->buckets;
   HashEntry * hashEntries = buckets[index].hashEntries;
   bool blockNotAllocated = true;
@@ -111,6 +111,7 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
       atomicExch(&table_d->mutex[index], 0);
     }
     //printf("thread id: %d, mutex: %d\n", threadIdx.x, mutex);
+    //determine which blocks are not inserted
   }
   return;
 }
