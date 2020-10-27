@@ -24,12 +24,11 @@
 
 __global__
 void printHashTable(HashTable * table_d, BlockHeap * blockHeap_d){
-  Bucket * buckets = table_d->buckets;
+  HashEntry * hashEntries = table_d->hashEntries;
   for(size_t i=0;i<NUM_BUCKETS; ++i){
     printf("Bucket: %lu\n", (unsigned long)i);
-    HashEntry * hashEntries = buckets[i].hashEntries;
     for(size_t it = 0; it<HASH_ENTRIES_PER_BUCKET; ++it){
-      HashEntry hashEntry = hashEntries[it];
+      HashEntry hashEntry = hashEntries[it+i*HASH_ENTRIES_PER_BUCKET];
       Point position = hashEntry.position;
       if (position.x == 0 && position.y == 0 && position.z == 0){
         printf("  Hash Entry with   Position: (N,N,N)   Offset: %d   Pointer: %d\n", hashEntry.offset, hashEntry.pointer);
@@ -65,13 +64,13 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
 
   //check for block in table
   Point point_d = points_d[threadIdx.x];
-  size_t index = hash(point_d);
-  printf("Point: (%d, %d, %d), Index: %lu\n", point_d.x, point_d.y, point_d.z, (unsigned long)index);
-  Bucket * buckets = table_d->buckets;
-  HashEntry * hashEntries = buckets[index].hashEntries;
+  size_t bucketIndex = hash(point_d);
+  size_t globalBucketIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
+  printf("Point: (%d, %d, %d), Index: %lu\n", point_d.x, point_d.y, point_d.z, (unsigned long)bucketIndex);
+  HashEntry * hashEntries = table_d->hashEntries;
   bool blockNotAllocated = true;
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-    HashEntry hashEntry = hashEntries[i];
+    HashEntry hashEntry = hashEntries[i+globalBucketIndex];
     if(hashEntry.position == point_d){ //what to do if positions are 0,0,0 then every initial block will map to the point
       break; //todo: return reference to block
       blockNotAllocated = false; //update this to just return
@@ -86,13 +85,7 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
   if(blockNotAllocated){
     //locks?
     //lock bucket
-    if(!atomicCAS(&table_d->mutex[index], 0, 1)){
-      // if(threadIdx.x>3){
-      //   hashEntries[1] = *allocBlockHashEntry;
-      // }
-      // else{
-      //   hashEntries[0] = *allocBlockHashEntry;
-      // }
+    if(!atomicCAS(&table_d->mutex[bucketIndex], 0, 1)){
       VoxelBlock * allocBlock = new VoxelBlock();
       int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
       blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
@@ -100,15 +93,28 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
       
       HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
       Point *p = new Point(0,0,0);
+      // bool notInserted = true;
       for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-        HashEntry hashEntry = hashEntries[i];
+        HashEntry hashEntry = hashEntries[i+globalBucketIndex];
         if(hashEntry.position == *p ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
-          hashEntries[i] = *allocBlockHashEntry;
+          hashEntries[i+globalBucketIndex] = *allocBlockHashEntry;
+          // notInserted = false;
           break;
         }
       }
-      //free block here or we have another kernel in parellel reset all mutex
-      atomicExch(&table_d->mutex[index], 0);
+
+      // while(notInserted){
+      //   //check offset of head linked list pointer
+      //   index++;
+      //   if(index==NUM_BUCKETS*HASH_ENTRIES_PER_BUCKET){
+      //     index = 0;
+      //   }
+      //   if(!atomicCAS(&table_d->mutex[index], 0, 1)){
+      //     for()
+      //   }
+      // }
+      //free block here or we have another kernel in parallel reset all mutex
+      atomicExch(&table_d->mutex[bucketIndex], 0);
     }
     //printf("thread id: %d, mutex: %d\n", threadIdx.x, mutex);
     //determine which blocks are not inserted
@@ -134,6 +140,7 @@ size_t hashMe(Point point){ //tested using int can get negatives
 int tsdfmain()
 {
   
+    //Need to make this a global variable so it can be updated every frame and not recreated
     HashTable * table_h = new HashTable();
     HashTable * table_d;
 

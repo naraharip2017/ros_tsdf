@@ -5,17 +5,17 @@
 
 #define VOXEL_PER_BLOCK 5
 #define HASH_ENTRIES_PER_BUCKET 2
-#define NUM_BUCKETS 5
-#define NUM_HEAP_BLOCKS 10
+#define NUM_BUCKETS 4
+#define NUM_HEAP_BLOCKS 8
 
 #define PRIME_ONE 73856093
 #define PRIME_TWO 19349669
 #define PRIME_THREE 83492791
 
 struct Point{
-    short x;
-    short y;
-    short z;
+    short x = 0;
+    short y = 0;
+    short z = 0;
     __device__ __host__
     Point(short x, short y, short z){
         this->x = x;
@@ -51,7 +51,7 @@ struct VoxelBlock{
 struct HashEntry{
     Point position; //if using center position of voxels then can set this to 0 0 0 and avoid using a pointer
     short offset;
-    int pointer; //potentially be a short depending on how many indices in block heap
+    int pointer;
     __device__ __host__
     HashEntry(){}
     __device__ __host__
@@ -61,15 +61,16 @@ struct HashEntry{
     }
 };
 
-struct Bucket{
-    HashEntry hashEntries[HASH_ENTRIES_PER_BUCKET]; //2
-    __device__ __host__
-    Bucket(){}
-};
+// struct Bucket{
+//     HashEntry hashEntries[HASH_ENTRIES_PER_BUCKET]; //2
+//     __device__ __host__
+//     Bucket(){}
+// };
 
 struct HashTable{
-    Bucket buckets[NUM_BUCKETS]; //4
+    HashEntry hashEntries[HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS];
     int mutex[NUM_BUCKETS];
+    __device__ __host__
     HashTable(){}
 };
 

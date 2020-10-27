@@ -6,39 +6,65 @@
 #include "rclcpp/rclcpp.hpp"
 #include <pcl/PCLPointCloud2.h>
 #include <pcl/conversions.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
 #include "std_msgs/msg/string.hpp"
+#include "transformPC.hpp"
+
+const std::string target_frame = "front_left_custom_body";
+rclcpp::Clock::SharedPtr clock_;
+tf2_ros::Buffer* tfBuffer;
+tf2_ros::TransformListener* tfListener;
 
 extern int tsdfmain();
+extern void pointcloudMain(std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ> > points);
 
-void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
-{
-    pcl::PCLPointCloud2 pcl_pc2;
-    pcl_conversions::toPCL(*msg,pcl_pc2);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    // pcl::PointCloud<pcl::PointXYZRGB> pointcloud_pcl;
-    // // pointcloud_pcl is modified below:
-    // pcl::fromROSMsg(*msg, pointcloud_pcl);
-    pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
-    temp_cloud->points;
-    for(size_t i=0; i<temp_cloud->points.size(); ++i){
-      printf("Cloud with Points: %f, %f, %f\n", temp_cloud->points[i].x,temp_cloud->points[i].y,temp_cloud->points[i].z);
-    }
-}
+  void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
+  {
+      // sensor_msgs::msg::PointCloud2::SharedPtr target_frame_msg;
+      // transformPointCloud(target_frame, *msg.get(), *target_frame_msg.get(), *tfBuffer);
+      // pcl::PointCloud<pcl::PointXYZRGB> pointcloud_pcl;
+      // pcl::fromROSMsg(*msg, pointcloud_pcl);
+      //target frame, target time, fixed frame, tf listener, cloud in/out
+      //convert point cloud
+      // pcl::PointCloud<pcl::PointXYZ>::Ptr converted_temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+      // pcl::PCLHeader header = temp_cloud->header;  
+      // std::string frame_id = header.frame_id;
+      // pcl::uint64_t stamp = header.stamp;
+
+      pcl::PCLPointCloud2 pcl_pc2;
+      pcl_conversions::toPCL(*msg,pcl_pc2);
+      pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+      pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
+      std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ> > points = temp_cloud->points;
+      pointcloudMain(points); //I can do this transformation myself if I can get the transformation matrix, then in parallel carry out the transformation of the pc
+
+      /*
+      This will convert the point cloud, then we can transfer to pointcloudMain. There we will find unique voxel block points for every point in pc..then
+      call the tsdf.cu for each voxel block. So I can return list of previous points that gets called 
+      */
+  }
 
 int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
 
-  auto node = rclcpp::Node::make_shared("my_subscriber");
+  // clock_ = std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME);
+  // tfBuffer = new tf2_ros::Buffer(clock_);
+  // tfListener = new tf2_ros::TransformListener(*tfBuffer);
 
-  auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "/airsim_node/drone_1/lidar/LidarCustom", 1, callback
-  ); //todo: should it be 1?
+  // // Transformer *transformer = new Transformer();
 
-  rclcpp::spin(node);
+  // auto node = rclcpp::Node::make_shared("my_subscriber");
 
-  rclcpp::shutdown();
+  // auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
+  //   "/airsim_node/drone_1/lidar/LidarCustom", 1, callback
+  // ); //todo: should it be 1? might be .1 check publishing rate in airsim but the mapping pipeline runs at 2hz?
 
-  //tsdfmain();
+  // rclcpp::spin(node);
+
+  // rclcpp::shutdown();
+
+  tsdfmain();
   return 0;
 }

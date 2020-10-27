@@ -26,6 +26,8 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 add_executable(tsdf_node src/tsdf_node.cpp)
 target_include_directories(tsdf_node PUBLIC
@@ -39,10 +41,14 @@ ament_target_dependencies(tsdf_node
   "pcl_conversions"
   "std_msgs"
   "pcl"
+  "tf2"
+  "tf2_ros"
+  "tf2_geometry_msgs"
 )
 
 cuda_add_library(${PROJECT_NAME}_cuda SHARED
   src/cuda/tsdf.cu
+  src/cuda/pointcloud.cu
   OPTIONS -arch sm_60  
 )
 target_include_directories(${PROJECT_NAME}_cuda PUBLIC
@@ -54,6 +60,8 @@ target_link_libraries(tsdf_node
 ${PROJECT_NAME}_cuda
 ${Boost_SYSTEM_LIBRARY}  # pcl_conversions requires this
 ${PCL_LIBRARIES}
+${tf2_LIBRARIES}
+${tf2_ros_LIBRARIES}
 )
 
 ament_export_interfaces(${PROJECT_NAME}_cuda HAS_LIBRARY_TARGET)
