@@ -10,13 +10,15 @@
 #include <tf2_ros/buffer.h>
 #include "std_msgs/msg/string.hpp"
 #include "transformPC.hpp"
+// #include "tsdf_node.cuh"
+#include "tsdf_handler.cuh"
 
 const std::string target_frame = "front_left_custom_body";
 rclcpp::Clock::SharedPtr clock_;
 tf2_ros::Buffer* tfBuffer;
 tf2_ros::TransformListener* tfListener;
 
-extern int tsdfmain();
+//extern int tsdfmain();
 extern void pointcloudMain(std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ> > points);
 
   void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
@@ -64,7 +66,11 @@ int main(int argc, char ** argv)
   // rclcpp::spin(node);
 
   // rclcpp::shutdown();
+  
+  //create hash table and everything here which is defined and implemented in tsdf_node.cuh and tsdf.cu. Then pass the table to pointCloudMain where point clouds are handled. Inside the class we hold all variables
 
-  tsdfmain();
+  //tsdfmain();
+  TsdfHandler * tsdfHandler = new TsdfHandler();
+  tsdfHandler->integrateVoxelBlockPointsIntoHashTable();
   return 0;
 }

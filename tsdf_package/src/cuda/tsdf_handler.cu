@@ -2,15 +2,15 @@
 
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include "tsdf_node.cuh"
+#include "tsdf_handler.cuh"
 
 #define PRIME_ONE 73856093
 #define PRIME_TWO 19349669
 #define PRIME_THREE 83492791
 
 __global__
-void printHashTable(HashTable * table_d, BlockHeap * blockHeap_d){
-  HashEntry * hashEntries = table_d->hashEntries;
+void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d){
+  HashEntry * hashEntries = hashTable_d->hashEntries;
   for(size_t i=0;i<NUM_BUCKETS; ++i){
     printf("Bucket: %lu\n", (unsigned long)i);
     for(size_t it = 0; it<HASH_ENTRIES_PER_BUCKET; ++it){
@@ -35,14 +35,14 @@ void printHashTable(HashTable * table_d, BlockHeap * blockHeap_d){
 }
 
 __device__
-size_t hash(Point point){ //tested using int can get negatives
+size_t retrieveHashIndexFromPoint(Point point){ //tested using int can get negatives
   return (((size_t)point.x * PRIME_ONE) ^
   ((size_t)point.y * PRIME_TWO) ^
   ((size_t)point.z * PRIME_THREE)) % NUM_BUCKETS;
 }
 
 __global__
-void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHeap_d)
+void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d)
 {
   
   //REMEMBER THREAD SYNCHRONIZATION
@@ -50,10 +50,10 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
 
   //check for block in table
   Point point_d = points_d[threadIdx.x];
-  size_t bucketIndex = hash(point_d);
+  size_t bucketIndex = retrieveHashIndexFromPoint(point_d);
   size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
   printf("Point: (%d, %d, %d), Index: %lu\n", point_d.x, point_d.y, point_d.z, (unsigned long)bucketIndex);
-  HashEntry * hashEntries = table_d->hashEntries;
+  HashEntry * hashEntries = hashTable_d->hashEntries;
   bool blockNotAllocated = true;
   HashEntry hashEntry;
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
@@ -89,7 +89,7 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
 
   //allocate block
   if(blockNotAllocated){
-    if(!atomicCAS(&table_d->mutex[bucketIndex], 0, 1)){
+    if(!atomicCAS(&hashTable_d->mutex[bucketIndex], 0, 1)){
       VoxelBlock * allocBlock = new VoxelBlock();
       bool notInserted = true;
       for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
@@ -114,15 +114,15 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
       //check bucket of linked list end if different release hashbucket lock
       size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
       if(endLinkedListBucket!=bucketIndex){
-        atomicExch(&table_d->mutex[bucketIndex], 0);
-        haveLinkedListBucketLock = !atomicCAS(&table_d->mutex[endLinkedListBucket], 0, 1);
+        atomicExch(&hashTable_d->mutex[bucketIndex], 0);
+        haveLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
       }
 
       if(haveLinkedListBucketLock){
                 //find position outside of current bucket
           while(notInserted){ //grab atomicCAS of linked list before looping for free spot
             //check offset of head linked list pointer
-            if(!atomicCAS(&table_d->mutex[insertBucketIndex], 0, 1)){
+            if(!atomicCAS(&hashTable_d->mutex[insertBucketIndex], 0, 1)){
               // printf("here");
               insertCurrentGlobalIndex = insertBucketIndex * HASH_ENTRIES_PER_BUCKET;
               for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
@@ -141,7 +141,7 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
                   break;
                 }
               }
-              atomicExch(&table_d->mutex[insertBucketIndex], 0);
+              atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
             }
             insertBucketIndex++;
             if(insertBucketIndex > NUM_BUCKETS){
@@ -153,7 +153,7 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
             }
             //check if equals hashedbucket then break, only loop through table once then have to return point for next frame
           }
-          atomicExch(&table_d->mutex[endLinkedListBucket], 0);
+          atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
     }
 
       //free block here or we have another kernel in parallel reset all mutex
@@ -167,46 +167,24 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
   return;
 }
 
-// void initTableAndBlockHeap(){
 
+TsdfHandler::TsdfHandler(){
+  hashTable_h = new HashTable();
+  blockHeap_h = new BlockHeap();
+  cudaMalloc(&hashTable_d, sizeof(*hashTable_h));
+  cudaMemcpy(hashTable_d, hashTable_h, sizeof(*hashTable_h), cudaMemcpyHostToDevice);
+  cudaMalloc(&blockHeap_d, sizeof(*blockHeap_h));
+  cudaMemcpy(blockHeap_d, blockHeap_h, sizeof(*blockHeap_h), cudaMemcpyHostToDevice);
+}
+
+// size_t hashMe(Point point){ //tested using int can get negatives
+//   return (((size_t)point.x * PRIME_ONE) ^
+//   ((size_t)point.y * PRIME_TWO) ^
+//   ((size_t)point.z * PRIME_THREE)) % NUM_BUCKETS;
 // }
 
-__global__
-void cudaTest(int * arr){
-  printf("%d", arr[threadIdx.x]);
-}
-
-size_t hashMe(Point point){ //tested using int can get negatives
-  return (((size_t)point.x * PRIME_ONE) ^
-  ((size_t)point.y * PRIME_TWO) ^
-  ((size_t)point.z * PRIME_THREE)) % NUM_BUCKETS;
-}
-
-int tsdfmain()
+void TsdfHandler::integrateVoxelBlockPointsIntoHashTable()
 {
-  
-    //Need to make this a global variable so it can be updated every frame and not recreated
-    HashTable * table_h = new HashTable();
-    HashTable * table_d;
-
-    cudaMalloc(&table_d, sizeof(*table_h));
-    cudaMemcpy(table_d, table_h, sizeof(*table_h), cudaMemcpyHostToDevice);
-    // updateTableSDF<<<1,1>>>(table_d);
-    // cudaMemcpy(table_h, table_d, sizeof(*table_h), cudaMemcpyDeviceToHost);
-
-    BlockHeap * blockHeap_h = new BlockHeap();
-    BlockHeap * blockHeap_d;
-
-    cudaMalloc(&blockHeap_d, sizeof(*blockHeap_h));
-    cudaMemcpy(blockHeap_d, blockHeap_h, sizeof(*blockHeap_h), cudaMemcpyHostToDevice);
-    // allocatedHeap<<<1,1>>>(blockHeap_d);
-    // cudaMemcpy(blockHeap_h, blockHeap_d, sizeof(*blockHeap_h), cudaMemcpyDeviceToHost);
-    // printf("%f\n", blockHeap_h->blocks[0].voxels[0].sdf);
-
-    // Point points[5];
-    // for(int i=0;i<)
-
-
     int size= 4;
     Point point_h[size];
     // Point * A = new Point(1,1,1);
@@ -227,9 +205,10 @@ int tsdfmain()
     Point * point_d;
     cudaMalloc(&point_d, sizeof(*point_h)*size);
     cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
-    pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
+    allocateVoxelBlocks<<<1,size>>>(point_d, hashTable_d, blockHeap_d);
+    printHashTableAndBlockHeap<<<1,1>>>(hashTable_d, blockHeap_d);
 
-    printHashTable<<<1,1>>>(table_d, blockHeap_d);
+    cudaDeviceSynchronize();
 
     for(int i=1; i<=size; ++i){
       Point * p = new Point(i+4,i+4,i+4);
@@ -239,9 +218,10 @@ int tsdfmain()
     // point_h[0] = *B;
     // point_h[1] = *E;
     cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
-    pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
+    allocateVoxelBlocks<<<1,size>>>(point_d, hashTable_d, blockHeap_d);
 
-    printHashTable<<<1,1>>>(table_d, blockHeap_d);
+    printHashTableAndBlockHeap<<<1,1>>>(hashTable_d, blockHeap_d);
+    cudaDeviceSynchronize();
 
     // point_h[0] = *C;
     // // point_h[1] = *F;
@@ -263,13 +243,6 @@ int tsdfmain()
     // pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
 
     // printHashTable<<<1,1>>>(table_d, blockHeap_d);
-
-    cudaFree(point_d);
-    //free(point_h);
-    cudaFree(table_d);
-    free(table_h);
-    cudaFree(blockHeap_d);
-    free(blockHeap_h);
   
   //process Points : points -> voxels -> voxel Blocks
 
@@ -280,6 +253,4 @@ int tsdfmain()
   //For each block update voxels sdf and weight
 
   //Remove unneeded blocks
-
-  return EXIT_SUCCESS;
 }

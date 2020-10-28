@@ -49,6 +49,7 @@ ament_target_dependencies(tsdf_node
 cuda_add_library(${PROJECT_NAME}_cuda SHARED
   src/cuda/tsdf.cu
   src/cuda/pointcloud.cu
+  src/cuda/tsdf_handler.cu
   OPTIONS -arch sm_60  
 )
 target_include_directories(${PROJECT_NAME}_cuda PUBLIC

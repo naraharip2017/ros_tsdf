@@ -1,5 +1,5 @@
-#ifndef _TSDF_CUH_
-#define _TSDF_CUH_
+#ifndef _TSDF_HANDLER_CUH
+#define _TSDF_HANDLER_CUH
 #include <cuda.h>
 #include <cuda_runtime.h>
 
@@ -12,7 +12,7 @@
 #define PRIME_TWO 19349669
 #define PRIME_THREE 83492791
 
-struct Point{
+struct Point{ //make own header file
     short x;
     short y;
     short z;
@@ -87,7 +87,23 @@ struct BlockHeap{
     }
 };
 
-class tsdfHandler{
+class TsdfHandler{
+
+public:
+    __host__
+    TsdfHandler();
+
+    //implement deconstructor for cudaFree and free of
+
+    __host__
+    void integrateVoxelBlockPointsIntoHashTable();
+
+private:
+    HashTable * hashTable_h;
+    HashTable * hashTable_d;
+
+    BlockHeap * blockHeap_h;
+    BlockHeap * blockHeap_d;
 
 };
 
