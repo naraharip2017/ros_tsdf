@@ -65,21 +65,44 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
   //check for block in table
   Point point_d = points_d[threadIdx.x];
   size_t bucketIndex = hash(point_d);
-  size_t globalBucketIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
+  size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
   printf("Point: (%d, %d, %d), Index: %lu\n", point_d.x, point_d.y, point_d.z, (unsigned long)bucketIndex);
   HashEntry * hashEntries = table_d->hashEntries;
   bool blockNotAllocated = true;
+  HashEntry hashEntry;
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-    HashEntry hashEntry = hashEntries[i+globalBucketIndex];
+    hashEntry = hashEntries[currentGlobalIndex+i];
     if(hashEntry.position == point_d){ //what to do if positions are 0,0,0 then every initial block will map to the point
       break; //todo: return reference to block
       blockNotAllocated = false; //update this to just return
       //return
     }
   }
+
+  currentGlobalIndex+=HASH_ENTRIES_PER_BUCKET-1;
+
+  //check linked list
+  while(hashEntry.offset!=0){
+    short offset = hashEntry.offset;
+    currentGlobalIndex+=offset;
+    hashEntry = hashEntries[currentGlobalIndex];
+    if(hashEntry.position == point_d){ //what to do if positions are 0,0,0 then every initial block will map to the point
+      blockNotAllocated = false; //update this to just return
+      printf("%s", "block allocated");
+      break; //todo: return reference to block
+      //return
+    }
+  }
+
+  //currentGlobalIndex contains pointer to last linked list element
+
+  //can have a full checker boolean if true then skip checking the hashed bucket for writing
+
   //todo: check linked list in hashEntries
 
   //leads to divergent threads so break these up
+
+  size_t insertCurrentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
 
   //allocate block
   if(blockNotAllocated){
@@ -87,34 +110,75 @@ void pointIntegration(Point * points_d, HashTable * table_d, BlockHeap* blockHea
     //lock bucket
     if(!atomicCAS(&table_d->mutex[bucketIndex], 0, 1)){
       VoxelBlock * allocBlock = new VoxelBlock();
-      int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-      blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-      
-      
-      HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
       Point *p = new Point(0,0,0);
-      // bool notInserted = true;
+      bool notInserted = true;
       for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-        HashEntry hashEntry = hashEntries[i+globalBucketIndex];
-        if(hashEntry.position == *p ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
-          hashEntries[i+globalBucketIndex] = *allocBlockHashEntry;
-          // notInserted = false;
+        HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
+        //make this a method like entry.checkFree super unclean currently
+        if(entry.position == *p ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
+          int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
+          blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
+          HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
+          hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
+          notInserted = false;
           break;
         }
       }
 
-      // while(notInserted){
-      //   //check offset of head linked list pointer
-      //   index++;
-      //   if(index==NUM_BUCKETS*HASH_ENTRIES_PER_BUCKET){
-      //     index = 0;
-      //   }
-      //   if(!atomicCAS(&table_d->mutex[index], 0, 1)){
-      //     for()
-      //   }
-      // }
+      size_t insertBucketIndex = bucketIndex + 1;
+      if(insertBucketIndex == NUM_BUCKETS){
+        insertBucketIndex = 0;
+      }
+
+      bool haveLinkedListBucketLock = true;
+
+      //check bucket of linked list end if different release hashbucket lock
+      size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
+      if(endLinkedListBucket!=bucketIndex){
+        atomicExch(&table_d->mutex[bucketIndex], 0);
+        haveLinkedListBucketLock = !atomicCAS(&table_d->mutex[endLinkedListBucket], 0, 1);
+      }
+
+      if(haveLinkedListBucketLock){
+                //find position outside of current bucket
+          while(notInserted){ //grab atomicCAS of linked list before looping for free spot
+            //check offset of head linked list pointer
+            if(!atomicCAS(&table_d->mutex[insertBucketIndex], 0, 1)){
+              // printf("here");
+              insertCurrentGlobalIndex = insertBucketIndex * HASH_ENTRIES_PER_BUCKET;
+              Point *p = new Point(0,0,0);
+              for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
+                HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
+                //make this a method like entry.checkFree super unclean currently
+                if(entry.position == *p ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
+                  //set offset of last linked list node
+                  // printf("here");
+                    int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
+                    blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
+                    HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
+                    hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
+                    hashEntries[currentGlobalIndex].offset = insertCurrentGlobalIndex + i - currentGlobalIndex;
+                    notInserted = false;
+                  
+                  break;
+                }
+              }
+              atomicExch(&table_d->mutex[insertBucketIndex], 0);
+            }
+            insertBucketIndex++;
+            if(insertBucketIndex > NUM_BUCKETS){
+              insertBucketIndex = 0;
+            }
+            if(insertBucketIndex == bucketIndex){
+              //return point
+              break;
+            }
+            //check if equals hashedbucket then break, only loop through table once then have to return point for next frame
+          }
+    }
+
       //free block here or we have another kernel in parallel reset all mutex
-      atomicExch(&table_d->mutex[bucketIndex], 0);
+      atomicExch(&table_d->mutex[endLinkedListBucket], 0);
     }
     //printf("thread id: %d, mutex: %d\n", threadIdx.x, mutex);
     //determine which blocks are not inserted
@@ -167,9 +231,11 @@ int tsdfmain()
     // Point * A = new Point(1,1,1);
     // Point * B = new Point(5,5,5);
     // Point * C = new Point(9,9,9);
+    // Point * D = new Point(13,13,13);
+    // Point * E = new Point(4,4,4);
+    // Point * F = new Point(12,12,12);
     // point_h[0] = *A;
-    // point_h[1] = *B;
-    // point_h[2] = *C;
+    // point_h[1] = *D;
 
     for(int i=1; i<=size; ++i){
       Point * p = new Point(i,i,i);
@@ -189,10 +255,33 @@ int tsdfmain()
       point_h[i-1] = *p;
     }
 
+    // point_h[0] = *B;
+    // point_h[1] = *E;
     cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
     pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
 
     printHashTable<<<1,1>>>(table_d, blockHeap_d);
+
+    // point_h[0] = *C;
+    // // point_h[1] = *F;
+    // cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
+    // pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
+
+    // printHashTable<<<1,1>>>(table_d, blockHeap_d);
+
+    // point_h[0] = *D;
+    // // point_h[1] = *F;
+    // cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
+    // pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
+
+    // printHashTable<<<1,1>>>(table_d, blockHeap_d);
+
+    // point_h[0] = *E;
+    // // point_h[1] = *F;
+    // cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
+    // pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
+
+    // printHashTable<<<1,1>>>(table_d, blockHeap_d);
 
     cudaFree(point_d);
     //free(point_h);

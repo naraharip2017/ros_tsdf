@@ -13,9 +13,9 @@
 #define PRIME_THREE 83492791
 
 struct Point{
-    short x = 0;
-    short y = 0;
-    short z = 0;
+    short x;
+    short y;
+    short z;
     __device__ __host__
     Point(short x, short y, short z){
         this->x = x;
@@ -23,7 +23,7 @@ struct Point{
         this->z = z;
     }
     __device__ __host__
-    Point(){}
+    Point():x(0),y(0),z(0){}
     __device__ __host__
     bool operator==(Point& B){
         return (this->x==B.x) && (this->y == B.y) && (this->z == B.z);
@@ -53,7 +53,7 @@ struct HashEntry{
     short offset;
     int pointer;
     __device__ __host__
-    HashEntry(){}
+    HashEntry():offset(0),pointer(0){}
     __device__ __host__
     HashEntry(Point position, int pointer):offset(0){
         this->position = position;
