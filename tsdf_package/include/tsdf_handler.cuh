@@ -96,7 +96,7 @@ public:
     //implement deconstructor for cudaFree and free of
 
     __host__
-    void integrateVoxelBlockPointsIntoHashTable();
+    void integrateVoxelBlockPointsIntoHashTable(Point point_h[], int size);
 
 private:
     HashTable * hashTable_h;

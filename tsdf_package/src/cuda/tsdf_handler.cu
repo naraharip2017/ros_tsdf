@@ -183,25 +183,9 @@ TsdfHandler::TsdfHandler(){
 //   ((size_t)point.z * PRIME_THREE)) % NUM_BUCKETS;
 // }
 
-void TsdfHandler::integrateVoxelBlockPointsIntoHashTable()
+void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Point point_h[], int size)
 {
-    int size= 4;
-    Point point_h[size];
-    // Point * A = new Point(1,1,1);
-    // Point * B = new Point(5,5,5);
-    // Point * C = new Point(9,9,9);
-    // Point * D = new Point(13,13,13);
-    // Point * E = new Point(4,4,4);
-    // Point * F = new Point(12,12,12);
-    // point_h[0] = *A;
-    // point_h[1] = *D;
 
-    for(int i=1; i<=size; ++i){
-      Point * p = new Point(i,i,i);
-      point_h[i-1] = *p;
-    }
-
-    // Point * point_h = new Point(1,1,1);
     Point * point_d;
     cudaMalloc(&point_d, sizeof(*point_h)*size);
     cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
@@ -209,40 +193,6 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable()
     printHashTableAndBlockHeap<<<1,1>>>(hashTable_d, blockHeap_d);
 
     cudaDeviceSynchronize();
-
-    for(int i=1; i<=size; ++i){
-      Point * p = new Point(i+4,i+4,i+4);
-      point_h[i-1] = *p;
-    }
-
-    // point_h[0] = *B;
-    // point_h[1] = *E;
-    cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
-    allocateVoxelBlocks<<<1,size>>>(point_d, hashTable_d, blockHeap_d);
-
-    printHashTableAndBlockHeap<<<1,1>>>(hashTable_d, blockHeap_d);
-    cudaDeviceSynchronize();
-
-    // point_h[0] = *C;
-    // // point_h[1] = *F;
-    // cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
-    // pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
-
-    // printHashTable<<<1,1>>>(table_d, blockHeap_d);
-
-    // point_h[0] = *D;
-    // // point_h[1] = *F;
-    // cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
-    // pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
-
-    // printHashTable<<<1,1>>>(table_d, blockHeap_d);
-
-    // point_h[0] = *E;
-    // // point_h[1] = *F;
-    // cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
-    // pointIntegration<<<1,size>>>(point_d, table_d, blockHeap_d);
-
-    // printHashTable<<<1,1>>>(table_d, blockHeap_d);
   
   //process Points : points -> voxels -> voxel Blocks
 

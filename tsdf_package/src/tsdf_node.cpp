@@ -70,7 +70,33 @@ int main(int argc, char ** argv)
   //create hash table and everything here which is defined and implemented in tsdf_node.cuh and tsdf.cu. Then pass the table to pointCloudMain where point clouds are handled. Inside the class we hold all variables
 
   //tsdfmain();
+
+      // Point point_h[size];
+    // Point * A = new Point(1,1,1);
+    // Point * B = new Point(5,5,5);
+    // Point * C = new Point(9,9,9);
+    // Point * D = new Point(13,13,13);
+    // Point * E = new Point(4,4,4);
+    // Point * F = new Point(12,12,12);
+    // point_h[0] = *A;
+    // point_h[1] = *D;
+
+    // for(int i=1; i<=size; ++i){
+    //   Point * p = new Point(i,i,i);
+    //   point_h[i-1] = *p;
+    // }
+
+    //     for(int i=1; i<=size; ++i){
+    //   Point * p = new Point(i+4,i+4,i+4);
+    //   point_h[i-1] = *p;
+    // }
+
+  Point point_h[2];
+  Point * A = new Point(1,1,1);
+  Point * B = new Point(2,2,2);
+  point_h[0] = *A;
+  point_h[1] = *B;
   TsdfHandler * tsdfHandler = new TsdfHandler();
-  tsdfHandler->integrateVoxelBlockPointsIntoHashTable();
+  tsdfHandler->integrateVoxelBlockPointsIntoHashTable(point_h, 2);
   return 0;
 }
