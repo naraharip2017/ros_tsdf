@@ -59,8 +59,9 @@ void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * 
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
     hashEntry = hashEntries[currentGlobalIndex+i];
     if(hashEntry.position == point_d){
+      blockNotAllocated = false;
       break; //todo: return reference to block
-      blockNotAllocated = false; //update this to just return
+      //update this to just return
       //return
     }
   }
@@ -123,14 +124,12 @@ void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * 
           while(notInserted){ //grab atomicCAS of linked list before looping for free spot
             //check offset of head linked list pointer
             if(!atomicCAS(&hashTable_d->mutex[insertBucketIndex], 0, 1)){
-              // printf("here");
               insertCurrentGlobalIndex = insertBucketIndex * HASH_ENTRIES_PER_BUCKET;
               for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
                 HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
                 //make this a method like entry.checkFree super unclean currently
                 if(entry.isFree() ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
                   //set offset of last linked list node
-                  // printf("here");
                     int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
                     blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
                     HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
@@ -144,7 +143,7 @@ void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * 
               atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
             }
             insertBucketIndex++;
-            if(insertBucketIndex > NUM_BUCKETS){
+            if(insertBucketIndex == NUM_BUCKETS){
               insertBucketIndex = 0;
             }
             if(insertBucketIndex == bucketIndex){
