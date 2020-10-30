@@ -3,37 +3,45 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <vector>
+#include <Eigen/Dense>
+#include <math.h>
 
 #define VOXEL_PER_BLOCK 1
 #define HASH_ENTRIES_PER_BUCKET 2
-#define NUM_BUCKETS 4
-#define NUM_HEAP_BLOCKS 8
+#define NUM_BUCKETS 100
+#define NUM_HEAP_BLOCKS 64
+#define VOXEL_SIZE 1
 
 #define PRIME_ONE 73856093
 #define PRIME_TWO 19349669
 #define PRIME_THREE 83492791
 
-struct Point{ //make own header file
-    short x;
-    short y;
-    short z;
-    __device__ __host__
-    Point(short x, short y, short z){
-        this->x = x;
-        this->y = y;
-        this->z = z;
-    }
-    __device__ __host__
-    Point():x(0),y(0),z(0){}
-    __device__ __host__
-    bool operator==(Point& B){
-        return (this->x==B.x) && (this->y == B.y) && (this->z == B.z);
-    }
-    __device__ __host__
-    Point * operator-(Point& B){
-        return new Point(this->x-B.x, this->y-B.y, this->z-B.z);
-    }
-};
+// typedef Eigen::Matrix<float, 3, 1> Vector3f;
+const float VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_BLOCK;
+const float HALF_VOXEL_BLOCK_SIZE = VOXEL_BLOCK_SIZE / 2;
+const float EPSILON = VOXEL_BLOCK_SIZE / 4;
+
+// struct Point{ //make own header file
+//     float x;
+//     float y;
+//     float z;
+//     __device__ __host__
+//     Point(float x, float y, float z){
+//         this->x = x;
+//         this->y = y;
+//         this->z = z;
+//     }
+//     __device__ __host__
+//     Point():x(0),y(0),z(0){}
+//     __device__ __host__
+//     bool operator==(Point& B){
+//         return (this->x==B.x) && (this->y == B.y) && (this->z == B.z);
+//     }
+//     __device__ __host__
+//     Point * operator-(Point& B){
+//         return new Point(this->x-B.x, this->y-B.y, this->z-B.z);
+//     }
+// };
 
 struct Voxel{
     float sdf;
@@ -54,30 +62,44 @@ struct VoxelBlock{
 };
 
 struct HashEntry{
-    Point position; //if using center position of voxels then can set this to 0 0 0 and avoid using a pointer
+    Eigen::Matrix<float, 3, 1> position; 
     short offset;
     int pointer;
     __device__ __host__
-    HashEntry():offset(0),pointer(0){}
+    HashEntry():offset(0),pointer(0),position(0,0,0){
+    }
     __device__ __host__
-    HashEntry(Point position, int pointer):offset(0){
+    HashEntry(Eigen::Matrix<float, 3, 1> position, int pointer):offset(0){
         this->position = position;
         this->pointer = pointer;
     }
     __device__ __host__
     bool isFree(){
-        if(position.x == 0 && position.y == 0 && position.z == 0){
+        if((position(0) == 0) && (position(1) == 0) && (position(2) == 0))
             return true;
-        }
+            
+        return false;
+    }
+
+    __device__ __host__
+    bool checkIsPositionEqual(Eigen::Matrix<float, 3, 1> B){
+        Eigen::Matrix<float, 3, 1> diff = this->position-B;
+        if((fabs(diff(0)) < EPSILON) && (fabs(diff(1)) < EPSILON) && (fabs(diff(2)) < EPSILON))
+            return true;
+            
         return false;
     }
 };
 
 struct HashTable{
     HashEntry hashEntries[HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS];
-    int mutex[NUM_BUCKETS];
+    int mutex[NUM_BUCKETS]; //make bool
     __device__ __host__
-    HashTable(){}
+    HashTable(){
+        for(int i=0; i<NUM_BUCKETS;++i){
+            mutex[i] = 0;
+        }
+    }
 };
 
 struct BlockHeap{
@@ -101,7 +123,7 @@ public:
     //implement deconstructor for cudaFree and free of
 
     __host__
-    void integrateVoxelBlockPointsIntoHashTable(Point point_h[], int size);
+    void integrateVoxelBlockPointsIntoHashTable(Eigen::Matrix<float, 3, 1> point_h[], int size);
 
 private:
     HashTable * hashTable_h;
@@ -110,7 +132,7 @@ private:
     BlockHeap * blockHeap_h;
     BlockHeap * blockHeap_d;
 
-    std::vector<Point> unallocatedPointsVector;
+    std::vector<Eigen::Matrix<float, 3, 1>> unallocatedPointsVector;
 };
 
 #endif

@@ -12,11 +12,13 @@
 #include <math.h>
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
-const float VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_BLOCK;
-const float HALF_VOXEL_BLOCK_SIZE = VOXEL_BLOCK_SIZE / 2;
-const float EPSILON = VOXEL_BLOCK_SIZE / 4;
 
 //rename to pointcloud_handler
+
+__device__
+size_t retrieveHash(Vector3f point){ //tested using int can get negatives
+  return (((int)point(0)*PRIME_ONE) ^ ((int)point(1)*PRIME_TWO) ^ ((int)point(2)*PRIME_THREE)) % NUM_BUCKETS;
+}
 
 __device__ 
 float FloorFun(float x, float scale){
@@ -49,7 +51,7 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B){
   // Point * origin = new Point(0,0,0); //make these vectors?
   // Point * Point_points_d = new Point(point_d.x, point_d.y, point_d.z); //converts the float to int
   // Point * direction = *Point_points_d - *origin;
-  Vector3f u(0,0,0);
+  Vector3f u(210,568,123);
   Vector3f point_d_vector(point_d.x, point_d.y, point_d.z);
   Vector3f v = point_d_vector - u; //direction
   printf("V: (%f, %f, %f)\n", v(0), v(1), v(2));
@@ -59,6 +61,7 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B){
   float truncation_distance = 2.0;
   Vector3f truncation_start = point_d_vector - truncation_distance*v_normalized;
   printf("Truncation start : (%f, %f, %f)\n", truncation_start(0), truncation_start(1), truncation_start(2));
+  
   Vector3f truncation_end = point_d_vector + truncation_distance*v_normalized;  //get voxel block of this and then traverse through voxel blocks till it equals this one
   printf("Truncation end : (%f, %f, %f)\n", truncation_end(0), truncation_end(1), truncation_end(2));
 
@@ -72,10 +75,11 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B){
   }
 
   Vector3f truncation_start_block = GetVoxelBlockCenterFromPoint(truncation_start);
-  printf("Truncation start Block: (%f, %f, %f)\n", truncation_start_block(0), truncation_start_block(1), truncation_start_block(2));
+  printf("Truncation start Block: (%f, %f, %f), hashes to %lu\n", truncation_start_block(0), truncation_start_block(1), truncation_start_block(2), retrieveHash(truncation_start_block));
+  // printf("point in size_t: %d, %d, %d\n", (int)truncation_start_block(0), (int)truncation_start_block(1), (int)truncation_start_block(2));
   Vector3f truncation_end_block = GetVoxelBlockCenterFromPoint(truncation_end);
-  printf("Truncation end Block: (%f, %f, %f)\n", truncation_end_block(0), truncation_end_block(1), truncation_end_block(2));
-
+  printf("Truncation end Block: (%f, %f, %f), hashes to %lu\n", truncation_end_block(0), truncation_end_block(1), truncation_end_block(2), retrieveHash(truncation_end_block));
+  // printf("point in size_t: %d, %d, %d\n", (int)truncation_end_block(0), (int)truncation_end_block(1), (int)truncation_end_block(2));
   float stepX = v(0) > 0 ? VOXEL_BLOCK_SIZE : -1 * VOXEL_BLOCK_SIZE;
   float stepY = v(1) > 0 ? VOXEL_BLOCK_SIZE : -1 * VOXEL_BLOCK_SIZE;
   float stepZ = v(2) > 0 ? VOXEL_BLOCK_SIZE : -1 * VOXEL_BLOCK_SIZE;
@@ -89,7 +93,9 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B){
 
   do{
     //add current block to blocks in current frame list or whatever
-    printf("Current Block: (%f, %f, %f)\n", currentBlock(0), currentBlock(1), currentBlock(2));
+    printf("Current Block: (%f, %f, %f), hashes to %lu\n", currentBlock(0), currentBlock(1), currentBlock(2), retrieveHash
+    (currentBlock));
+    // printf("point in size_t: %d, %d, %d\n", (int)currentBlock(0), (int)currentBlock(1), (int)currentBlock(2));
     if(tMaxX < tMaxY){
       if(tMaxX < tMaxZ)
       {
@@ -144,8 +150,8 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B){
       }
     }       
   } while(!checkFloatingPointVectorsEqual(currentBlock, truncation_end_block));
-  printf("Current Block: (%f, %f, %f)\n", currentBlock(0), currentBlock(1), currentBlock(2));
-
+  printf("Current Block: (%f, %f, %f), hashes to %lu\n", currentBlock(0), currentBlock(1), currentBlock(2), retrieveHash(currentBlock));
+  // printf("point in size_t: %d, %d, %d\n", (int)currentBlock(0), (int)currentBlock(1), (int)currentBlock(2));
   printf("Cloud with Points: %f, %f, %f\n", points_d[threadIndex].x,points_d[threadIndex].y,points_d[threadIndex].z);
   return;
  }
@@ -173,7 +179,6 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud)
 
 void testVoxelBlockTraversal(){
   // float f = 10.23423;
-  
   pcl::PointXYZ * point = new pcl::PointXYZ(-7.23421,-278, 576.2342);
   pcl::PointXYZ * points_h = new pcl::PointXYZ[1];
   points_h[0] = *point;

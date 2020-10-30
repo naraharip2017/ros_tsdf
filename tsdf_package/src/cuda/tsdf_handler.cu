@@ -8,6 +8,8 @@
 #define PRIME_TWO 19349669
 #define PRIME_THREE 83492791
 
+typedef Eigen::Matrix<float, 3, 1> Vector3f;
+
 //rename to voxelBlock_handler
 __global__
 void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d){
@@ -16,12 +18,12 @@ void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d
     printf("Bucket: %lu\n", (unsigned long)i);
     for(size_t it = 0; it<HASH_ENTRIES_PER_BUCKET; ++it){
       HashEntry hashEntry = hashEntries[it+i*HASH_ENTRIES_PER_BUCKET];
-      Point position = hashEntry.position;
-      if (position.x == 0 && position.y == 0 && position.z == 0){
+      Vector3f position = hashEntry.position;
+      if (hashEntry.isFree()){
         printf("  Hash Entry with   Position: (N,N,N)   Offset: %d   Pointer: %d\n", hashEntry.offset, hashEntry.pointer);
       }
       else{
-        printf("  Hash Entry with   Position: (%d,%d,%d)   Offset: %d   Pointer: %d\n", position.x, position.y, position.z, hashEntry.offset, hashEntry.pointer);
+        printf("  Hash Entry with   Position: (%f,%f,%f)   Offset: %d   Pointer: %d\n", position(0), position(1), position(2), hashEntry.offset, hashEntry.pointer);
       }
     }
     printf("%s\n", "--------------------------------------------------------");
@@ -36,14 +38,12 @@ void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d
 }
 
 __device__
-size_t retrieveHashIndexFromPoint(Point point){ //tested using int can get negatives
-  return (((size_t)point.x * PRIME_ONE) ^
-  ((size_t)point.y * PRIME_TWO) ^
-  ((size_t)point.z * PRIME_THREE)) % NUM_BUCKETS;
+size_t retrieveHashIndexFromPoint(Vector3f point){ //tested using int can get negatives
+  return abs((((int)point(0)*PRIME_ONE) ^ ((int)point(1)*PRIME_TWO) ^ ((int)point(2)*PRIME_THREE)) % NUM_BUCKETS);
 }
 
 __global__
-void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d)
+void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d)
 {
   
   //REMEMBER THREAD SYNCHRONIZATION
@@ -51,16 +51,16 @@ void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * 
 
   //check for block in table
   int threadIndex = threadIdx.x;
-  Point point_d = points_d[threadIndex];
+  Vector3f point_d = points_d[threadIndex];
   size_t bucketIndex = retrieveHashIndexFromPoint(point_d);
   size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
-  printf("Point: (%d, %d, %d), Index: %lu\n", point_d.x, point_d.y, point_d.z, (unsigned long)bucketIndex);
+  printf("Point: (%f, %f, %f), Index: %lu\n", point_d(0), point_d(1), point_d(2), bucketIndex);
   HashEntry * hashEntries = hashTable_d->hashEntries;
   bool blockNotAllocated = true;
   HashEntry hashEntry;
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
     hashEntry = hashEntries[currentGlobalIndex+i];
-    if(hashEntry.position == point_d){
+    if(hashEntry.checkIsPositionEqual(point_d)){
       blockNotAllocated = false;
       break; //todo: return reference to block
       //update this to just return
@@ -76,7 +76,7 @@ void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * 
     short offset = hashEntry.offset;
     currentGlobalIndex+=offset;
     hashEntry = hashEntries[currentGlobalIndex];
-    if(hashEntry.position == point_d){ //what to do if positions are 0,0,0 then every initial block will map to the point
+    if(hashEntry.checkIsPositionEqual(point_d)){ //what to do if positions are 0,0,0 then every initial block will map to the point
       blockNotAllocated = false; //update this to just return
       printf("%s", "block allocated");
       break; //todo: return reference to block
@@ -182,13 +182,11 @@ TsdfHandler::TsdfHandler(){
   cudaMemcpy(blockHeap_d, blockHeap_h, sizeof(*blockHeap_h), cudaMemcpyHostToDevice);
 }
 
-size_t hashMe(Point point){ //tested using int can get negatives
-  return (((size_t)point.x * PRIME_ONE) ^
-  ((size_t)point.y * PRIME_TWO) ^
-  ((size_t)point.z * PRIME_THREE)) % NUM_BUCKETS;
+size_t hashMe(Vector3f point){ //tested using int can get negatives
+  return abs((((int)point(0)*PRIME_ONE) ^ ((int)point(1)*PRIME_TWO) ^ ((int)point(2)*PRIME_THREE)) % NUM_BUCKETS);
 }
 
-void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Point points_h[], int size)
+void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f points_h[], int size)
 {
 
   for(int i = 0; i<size; ++i){
@@ -197,7 +195,7 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Point points_h[], int s
 
   size = unallocatedPointsVector.size();
 
-  Point * point_h = &unallocatedPointsVector[0];
+  Vector3f * point_h = &unallocatedPointsVector[0];
 
   bool * unallocatedPoints_h = new bool[size];
   for(int i=0;i<size;++i)
@@ -208,7 +206,7 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Point points_h[], int s
   cudaMalloc(&unallocatedPoints_d, sizeof(*unallocatedPoints_h)*size);
   cudaMemcpy(unallocatedPoints_d, unallocatedPoints_h, sizeof(*unallocatedPoints_h)*size, cudaMemcpyHostToDevice);
   
-  Point * point_d;
+  Vector3f * point_d;
   cudaMalloc(&point_d, sizeof(*point_h)*size);
   cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
   allocateVoxelBlocks<<<1,size>>>(point_d, hashTable_d, blockHeap_d, unallocatedPoints_d);
@@ -218,7 +216,7 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Point points_h[], int s
 
   cudaMemcpy(unallocatedPoints_h, unallocatedPoints_d, sizeof(*unallocatedPoints_h)*size, cudaMemcpyDeviceToHost);
 
-  std::vector<Point> tempUnallocatedPointsVector; 
+  std::vector<Vector3f> tempUnallocatedPointsVector; 
   for(int i = 0; i<size; ++i){
     if(unallocatedPoints_h[i]){
       tempUnallocatedPointsVector.push_back(point_h[i]);
@@ -229,8 +227,8 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Point points_h[], int s
 
   for (int it = 0; it < unallocatedPointsVector.size(); ++it)
   {
-    printf("%d: Unallocated Point: (%d, %d, %d) at index: %lu\n", it+1, unallocatedPointsVector[it].x, 
-    unallocatedPointsVector[it].y, unallocatedPointsVector[it].z, hashMe(unallocatedPointsVector[it]));
+    printf("%d: Unallocated Point: (%f, %f, %f) at index: %lu\n", it+1, unallocatedPointsVector[it](0), 
+    unallocatedPointsVector[it](1), unallocatedPointsVector[it](2), hashMe(unallocatedPointsVector[it]));
   }
   
   //process Points : points -> voxels -> voxel Blocks
