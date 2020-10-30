@@ -2,8 +2,9 @@
 #define _TSDF_HANDLER_CUH
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <vector>
 
-#define VOXEL_PER_BLOCK 5
+#define VOXEL_PER_BLOCK 1
 #define HASH_ENTRIES_PER_BUCKET 2
 #define NUM_BUCKETS 4
 #define NUM_HEAP_BLOCKS 8
@@ -27,6 +28,10 @@ struct Point{ //make own header file
     __device__ __host__
     bool operator==(Point& B){
         return (this->x==B.x) && (this->y == B.y) && (this->z == B.z);
+    }
+    __device__ __host__
+    Point * operator-(Point& B){
+        return new Point(this->x-B.x, this->y-B.y, this->z-B.z);
     }
 };
 
@@ -105,6 +110,7 @@ private:
     BlockHeap * blockHeap_h;
     BlockHeap * blockHeap_d;
 
+    std::vector<Point> unallocatedPointsVector;
 };
 
 #endif

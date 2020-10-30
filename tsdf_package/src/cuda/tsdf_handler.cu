@@ -8,6 +8,7 @@
 #define PRIME_TWO 19349669
 #define PRIME_THREE 83492791
 
+//rename to voxelBlock_handler
 __global__
 void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d){
   HashEntry * hashEntries = hashTable_d->hashEntries;
@@ -42,14 +43,15 @@ size_t retrieveHashIndexFromPoint(Point point){ //tested using int can get negat
 }
 
 __global__
-void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d)
+void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d)
 {
   
   //REMEMBER THREAD SYNCHRONIZATION
   //CAN COPY GLOBAL MEMORY LOCALLY ANYWHERE AND THEN RESYNC WITH GLOBAL MEM?
 
   //check for block in table
-  Point point_d = points_d[threadIdx.x];
+  int threadIndex = threadIdx.x;
+  Point point_d = points_d[threadIndex];
   size_t bucketIndex = retrieveHashIndexFromPoint(point_d);
   size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
   printf("Point: (%d, %d, %d), Index: %lu\n", point_d.x, point_d.y, point_d.z, (unsigned long)bucketIndex);
@@ -91,76 +93,80 @@ void allocateVoxelBlocks(Point * points_d, HashTable * hashTable_d, BlockHeap * 
   //allocate block
   if(blockNotAllocated){
     if(!atomicCAS(&hashTable_d->mutex[bucketIndex], 0, 1)){
-      VoxelBlock * allocBlock = new VoxelBlock();
-      bool notInserted = true;
-      for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-        HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
-        if(entry.isFree()){ 
-          int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-          blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-          HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
-          hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
-          notInserted = false;
-          break;
-        }
-      }
-
-      size_t insertBucketIndex = bucketIndex + 1;
-      if(insertBucketIndex == NUM_BUCKETS){
-        insertBucketIndex = 0;
-      }
-
-      bool haveLinkedListBucketLock = true;
-
-      //check bucket of linked list end if different release hashbucket lock
-      size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
-      if(endLinkedListBucket!=bucketIndex){
-        atomicExch(&hashTable_d->mutex[bucketIndex], 0);
-        haveLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
-      }
-
-      if(haveLinkedListBucketLock){
-                //find position outside of current bucket
-          while(notInserted){ //grab atomicCAS of linked list before looping for free spot
-            //check offset of head linked list pointer
-            if(!atomicCAS(&hashTable_d->mutex[insertBucketIndex], 0, 1)){
-              insertCurrentGlobalIndex = insertBucketIndex * HASH_ENTRIES_PER_BUCKET;
-              for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
-                HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
-                //make this a method like entry.checkFree super unclean currently
-                if(entry.isFree() ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
-                  //set offset of last linked list node
-                    int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-                    blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-                    HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
-                    hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
-                    hashEntries[currentGlobalIndex].offset = insertCurrentGlobalIndex + i - currentGlobalIndex;
-                    notInserted = false;
-                  
-                  break;
-                }
-              }
-              atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
-            }
-            insertBucketIndex++;
-            if(insertBucketIndex == NUM_BUCKETS){
-              insertBucketIndex = 0;
-            }
-            if(insertBucketIndex == bucketIndex){
-              //return the point or add to temp list
-              break;
-            }
-            //check if equals hashedbucket then break, only loop through table once then have to return point for next frame
+        VoxelBlock * allocBlock = new VoxelBlock();
+        bool notInserted = true;
+        for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
+          HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
+          if(entry.isFree()){ 
+            int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
+            blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
+            HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
+            hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
+            notInserted = false;
+            break;
           }
-          atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
-    }
+        }
+
+        size_t insertBucketIndex = bucketIndex + 1;
+        if(insertBucketIndex == NUM_BUCKETS){
+          insertBucketIndex = 0;
+        }
+
+        bool haveLinkedListBucketLock = true;
+
+        //check bucket of linked list end if different release hashbucket lock
+        size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
+        if(endLinkedListBucket!=bucketIndex){
+          atomicExch(&hashTable_d->mutex[bucketIndex], 0);
+          haveLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
+        }
+
+        if(haveLinkedListBucketLock){
+                  //find position outside of current bucket
+            while(notInserted){ //grab atomicCAS of linked list before looping for free spot
+              //check offset of head linked list pointer
+              if(!atomicCAS(&hashTable_d->mutex[insertBucketIndex], 0, 1)){
+                insertCurrentGlobalIndex = insertBucketIndex * HASH_ENTRIES_PER_BUCKET;
+                for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
+                  HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
+                  //make this a method like entry.checkFree super unclean currently
+                  if(entry.isFree() ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
+                    //set offset of last linked list node
+                      int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
+                      blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
+                      HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
+                      hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
+                      hashEntries[currentGlobalIndex].offset = insertCurrentGlobalIndex + i - currentGlobalIndex;
+                      notInserted = false;
+                    
+                    break;
+                  }
+                }
+                atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
+              }
+              insertBucketIndex++;
+              if(insertBucketIndex == NUM_BUCKETS){
+                insertBucketIndex = 0;
+              }
+              if(insertBucketIndex == bucketIndex){
+                unallocatedPoints_d[threadIndex] = 1;
+                return;
+              }
+              //check if equals hashedbucket then break, only loop through table once then have to return point for next frame
+            }
+            atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
+      }
+      else{
+        unallocatedPoints_d[threadIndex] = 1;
+        return;
+      }
 
       //free block here or we have another kernel in parallel reset all mutex
     }
     //printf("thread id: %d, mutex: %d\n", threadIdx.x, mutex);
     //determine which blocks are not inserted
     else{
-      //return the point or add to temp list
+      unallocatedPoints_d[threadIndex] = 1;
     }
   }
   return;
@@ -176,22 +182,56 @@ TsdfHandler::TsdfHandler(){
   cudaMemcpy(blockHeap_d, blockHeap_h, sizeof(*blockHeap_h), cudaMemcpyHostToDevice);
 }
 
-// size_t hashMe(Point point){ //tested using int can get negatives
-//   return (((size_t)point.x * PRIME_ONE) ^
-//   ((size_t)point.y * PRIME_TWO) ^
-//   ((size_t)point.z * PRIME_THREE)) % NUM_BUCKETS;
-// }
+size_t hashMe(Point point){ //tested using int can get negatives
+  return (((size_t)point.x * PRIME_ONE) ^
+  ((size_t)point.y * PRIME_TWO) ^
+  ((size_t)point.z * PRIME_THREE)) % NUM_BUCKETS;
+}
 
-void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Point point_h[], int size)
+void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Point points_h[], int size)
 {
 
-    Point * point_d;
-    cudaMalloc(&point_d, sizeof(*point_h)*size);
-    cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
-    allocateVoxelBlocks<<<1,size>>>(point_d, hashTable_d, blockHeap_d);
-    printHashTableAndBlockHeap<<<1,1>>>(hashTable_d, blockHeap_d);
+  for(int i = 0; i<size; ++i){
+    unallocatedPointsVector.push_back(points_h[i]); //don't repeat points might get really crowded with repeat points since seeing same blocks over and over
+  }
 
-    cudaDeviceSynchronize();
+  size = unallocatedPointsVector.size();
+
+  Point * point_h = &unallocatedPointsVector[0];
+
+  bool * unallocatedPoints_h = new bool[size];
+  for(int i=0;i<size;++i)
+  {
+    unallocatedPoints_h[i] = 0;
+  }
+  bool * unallocatedPoints_d;
+  cudaMalloc(&unallocatedPoints_d, sizeof(*unallocatedPoints_h)*size);
+  cudaMemcpy(unallocatedPoints_d, unallocatedPoints_h, sizeof(*unallocatedPoints_h)*size, cudaMemcpyHostToDevice);
+  
+  Point * point_d;
+  cudaMalloc(&point_d, sizeof(*point_h)*size);
+  cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
+  allocateVoxelBlocks<<<1,size>>>(point_d, hashTable_d, blockHeap_d, unallocatedPoints_d);
+  printHashTableAndBlockHeap<<<1,1>>>(hashTable_d, blockHeap_d);
+
+  cudaDeviceSynchronize();
+
+  cudaMemcpy(unallocatedPoints_h, unallocatedPoints_d, sizeof(*unallocatedPoints_h)*size, cudaMemcpyDeviceToHost);
+
+  std::vector<Point> tempUnallocatedPointsVector; 
+  for(int i = 0; i<size; ++i){
+    if(unallocatedPoints_h[i]){
+      tempUnallocatedPointsVector.push_back(point_h[i]);
+    }
+  }
+
+  unallocatedPointsVector = tempUnallocatedPointsVector;
+
+  for (int it = 0; it < unallocatedPointsVector.size(); ++it)
+  {
+    printf("%d: Unallocated Point: (%d, %d, %d) at index: %lu\n", it+1, unallocatedPointsVector[it].x, 
+    unallocatedPointsVector[it].y, unallocatedPointsVector[it].z, hashMe(unallocatedPointsVector[it]));
+  }
   
   //process Points : points -> voxels -> voxel Blocks
 
