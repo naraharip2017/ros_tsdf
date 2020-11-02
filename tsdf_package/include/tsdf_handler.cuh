@@ -5,11 +5,13 @@
 #include <vector>
 #include <Eigen/Dense>
 #include <math.h>
+// #include <tf2_ros/transform_listener.h>
+// #include <tf2_ros/buffer.h>
 
 #define VOXEL_PER_BLOCK 1
 #define HASH_ENTRIES_PER_BUCKET 2
-#define NUM_BUCKETS 100
-#define NUM_HEAP_BLOCKS 64
+#define NUM_BUCKETS 4
+#define NUM_HEAP_BLOCKS 8
 #define VOXEL_SIZE 1
 
 #define PRIME_ONE 73856093
@@ -74,7 +76,7 @@ struct HashEntry{
         this->pointer = pointer;
     }
     __device__ __host__
-    bool isFree(){
+    bool isFree(){ //when deleting entries make sure the positions do not get set to -0 otherwise change this to an epsilon or fabs
         if((position(0) == 0) && (position(1) == 0) && (position(2) == 0))
             return true;
             
@@ -125,6 +127,9 @@ public:
     __host__
     void integrateVoxelBlockPointsIntoHashTable(Eigen::Matrix<float, 3, 1> point_h[], int size);
 
+    // __host__
+    // Vector3f getOriginInPointCloudFrame(const std::string & target_frame, const sensor_msgs::msg::PointCloud2 & in);
+
 private:
     HashTable * hashTable_h;
     HashTable * hashTable_d;
@@ -133,6 +138,10 @@ private:
     BlockHeap * blockHeap_d;
 
     std::vector<Eigen::Matrix<float, 3, 1>> unallocatedPointsVector;
+
+    // rclcpp::Clock::SharedPtr clock_;
+    // tf2_ros::Buffer* tfBuffer;
+    // tf2_ros::TransformListener* tfListener;
 };
 
 #endif

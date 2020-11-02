@@ -13,11 +13,23 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
+__constant__
+const float truncation_distance = 2.0;
+
 //rename to pointcloud_handler
+
+__global__
+void printVoxelBlocksFromPoint(Vector3f * pointCloudVoxelBlocks_d, int * pointer_d){
+  printf("List of Points: \n");
+  for(int i=0;i<*pointer_d;++i){
+    Vector3f point = pointCloudVoxelBlocks_d[i];
+    printf("(%f, %f, %f)\n", point(0), point(1), point(2));
+  }
+}
 
 __device__
 size_t retrieveHash(Vector3f point){ //tested using int can get negatives
-  return (((int)point(0)*PRIME_ONE) ^ ((int)point(1)*PRIME_TWO) ^ ((int)point(2)*PRIME_THREE)) % NUM_BUCKETS;
+  return abs((((int)point(0)*PRIME_ONE) ^ ((int)point(1)*PRIME_TWO) ^ ((int)point(2)*PRIME_THREE)) % NUM_BUCKETS);
 }
 
 __device__ 
@@ -45,20 +57,20 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B){
 }
 
  __global__
- void getVoxelBlocksForPoint(pcl::PointXYZ * points_d){
+ void getVoxelBlocksForPoint(pcl::PointXYZ * points_d, Vector3f * pointCloudVoxelBlocks_d, int * pointer_d, Vector3f * origin_transformed_d){
   int threadIndex = threadIdx.x;
   pcl::PointXYZ point_d = points_d[threadIndex];
   // Point * origin = new Point(0,0,0); //make these vectors?
   // Point * Point_points_d = new Point(point_d.x, point_d.y, point_d.z); //converts the float to int
   // Point * direction = *Point_points_d - *origin;
-  Vector3f u(210,568,123);
+  Vector3f u = *origin_transformed_d;
+  printf("transformation: (%f, %f, %f)\n", u(0), u(1), u(2));
   Vector3f point_d_vector(point_d.x, point_d.y, point_d.z);
   Vector3f v = point_d_vector - u; //direction
   printf("V: (%f, %f, %f)\n", v(0), v(1), v(2));
   //equation of line is u+tv
   float vMag = sqrt(pow(v(0), 2) + pow(v(1),2) + pow(v(2), 2));
   Vector3f v_normalized = v / vMag;
-  float truncation_distance = 2.0;
   Vector3f truncation_start = point_d_vector - truncation_distance*v_normalized;
   printf("Truncation start : (%f, %f, %f)\n", truncation_start(0), truncation_start(1), truncation_start(2));
   
@@ -93,6 +105,8 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B){
 
   do{
     //add current block to blocks in current frame list or whatever
+    int pointCloudVoxelBlocksIndex = atomicAdd(&(*pointer_d), 1);
+    pointCloudVoxelBlocks_d[pointCloudVoxelBlocksIndex] = currentBlock;
     printf("Current Block: (%f, %f, %f), hashes to %lu\n", currentBlock(0), currentBlock(1), currentBlock(2), retrieveHash
     (currentBlock));
     // printf("point in size_t: %d, %d, %d\n", (int)currentBlock(0), (int)currentBlock(1), (int)currentBlock(2));
@@ -150,6 +164,8 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B){
       }
     }       
   } while(!checkFloatingPointVectorsEqual(currentBlock, truncation_end_block));
+  int pointCloudVoxelBlocksIndex = atomicAdd(&(*pointer_d), 1);
+  pointCloudVoxelBlocks_d[pointCloudVoxelBlocksIndex] = currentBlock;
   printf("Current Block: (%f, %f, %f), hashes to %lu\n", currentBlock(0), currentBlock(1), currentBlock(2), retrieveHash(currentBlock));
   // printf("point in size_t: %d, %d, %d\n", (int)currentBlock(0), (int)currentBlock(1), (int)currentBlock(2));
   printf("Cloud with Points: %f, %f, %f\n", points_d[threadIndex].x,points_d[threadIndex].y,points_d[threadIndex].z);
@@ -157,8 +173,8 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B){
  }
 
 
-
-void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud)
+//takes sensor origin position
+void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h)
 {
   //retrieve sensor origin..can use transformation from point cloud time stamp drone_1/lidar frame to drone_1 frame then transform 0,0,0
   
@@ -169,7 +185,32 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud)
   int size = pointcloud->size();
   cudaMalloc(&points_d, sizeof(*points_h)*size);
   cudaMemcpy(points_d, points_h, sizeof(*points_h)*size, cudaMemcpyHostToDevice);
-  getVoxelBlocksForPoint<<<1,size>>>(points_d);
+
+  // int * pointCloudVoxelBlockSize_h = new int(maxBlocksPerPoint * size);
+  // int * pointCloudVoxelBlockSize_d;
+  // cudaMalloc(&pointCloudVoxelBlockSize_d, sizeof(int));
+  // cudaMemcpy(pointCloudVoxelBlockSize_d, pointCloudVoxelBlockSize_h, sizeof(int, ))
+  int maxBlocksPerPoint = ceil(pow(truncation_distance,3) / pow(VOXEL_BLOCK_SIZE, 3));
+  int maxBlocks = maxBlocksPerPoint * size;
+  Vector3f * pointCloudVoxelBlocks_h[maxBlocks];
+  Vector3f * pointCloudVoxelBlocks_d;
+  int * pointer_h = 0;
+  int * pointer_d;
+  cudaMalloc(&pointCloudVoxelBlocks_d, sizeof(*pointCloudVoxelBlocks_h)*maxBlocks);
+  cudaMemcpy(pointCloudVoxelBlocks_d, pointCloudVoxelBlocks_h, sizeof(*pointCloudVoxelBlocks_h)*maxBlocks,cudaMemcpyHostToDevice); //do I even need to memcpy
+  cudaMalloc(&pointer_d, sizeof(*pointer_h));
+  cudaMemcpy(pointer_d, pointer_h, sizeof(*pointer_h), cudaMemcpyHostToDevice);
+
+  Vector3f * origin_transformed_d;
+  cudaMalloc(&origin_transformed_d, sizeof(*origin_transformed_h));
+  cudaMemcpy(origin_transformed_d, origin_transformed_h,sizeof(*origin_transformed_h),cudaMemcpyHostToDevice);
+  // PointCloudVoxelBlocks * pointCloudVoxelBlocks_h = new PointCloudVoxelBlocks(maxBlocks);
+  // PointCloudVoxelBlocks * pointCloudVoxelBlocks_d;
+
+  // cudaMalloc(&pointCloudVoxelBlocks_d, sizeof(float)*3*maxBlocks+4);
+  // cudaMemcpy(pointCloudVoxelBlocks_d, pointCloudVoxelBlocks_h, sizeof(Vector3f)*maxBlocks+sizeof(int), cudaMemcpyHostToDevice);
+
+  getVoxelBlocksForPoint<<<1,size>>>(points_d, pointCloudVoxelBlocks_d, pointer_d, origin_transformed_d);
 
 
   // for(size_t i=0; i<points.size(); ++i){
@@ -179,13 +220,31 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud)
 
 void testVoxelBlockTraversal(){
   // float f = 10.23423;
-  pcl::PointXYZ * point = new pcl::PointXYZ(-7.23421,-278, 576.2342);
-  pcl::PointXYZ * points_h = new pcl::PointXYZ[1];
-  points_h[0] = *point;
+  int size = 2;
+  pcl::PointXYZ * point1 = new pcl::PointXYZ(-73.4567,33.576, 632.8910);
+  pcl::PointXYZ * point2 = new pcl::PointXYZ(-7.23421,-278, 576.2342);
+  pcl::PointXYZ * points_h = new pcl::PointXYZ[size];
+  points_h[0] = *point1;
+  points_h[1] = *point2;
   pcl::PointXYZ * points_d;
-  cudaMalloc(&points_d, sizeof(*points_h)*1);
-  cudaMemcpy(points_d, points_h, sizeof(*points_h)*1, cudaMemcpyHostToDevice);
-  getVoxelBlocksForPoint<<<1,1>>>(points_d);
+  cudaMalloc(&points_d, sizeof(*points_h)*size);
+  cudaMemcpy(points_d, points_h, sizeof(*points_h)*size, cudaMemcpyHostToDevice);
+
+
+  int maxBlocksPerPoint = ceil(pow(truncation_distance,3) / pow(VOXEL_BLOCK_SIZE, 3));
+  int maxBlocks = maxBlocksPerPoint * size;
+  Vector3f * pointCloudVoxelBlocks_h[maxBlocks]; //make these member functions of tsdf_handler if cant pass device reference on host code
+  Vector3f * pointCloudVoxelBlocks_d;
+  int * pointer_h = 0;
+  int * pointer_d;
+  cudaMalloc(&pointCloudVoxelBlocks_d, sizeof(*pointCloudVoxelBlocks_h)*maxBlocks);
+  cudaMemcpy(pointCloudVoxelBlocks_d, pointCloudVoxelBlocks_h, sizeof(*pointCloudVoxelBlocks_h)*maxBlocks,cudaMemcpyHostToDevice); //do I even need to memcpy
+  cudaMalloc(&pointer_d, sizeof(*pointer_h));
+  cudaMemcpy(pointer_d, pointer_h, sizeof(*pointer_h), cudaMemcpyHostToDevice);
+
+  // getVoxelBlocksForPoint<<<1,size>>>(points_d, pointCloudVoxelBlocks_d, pointer_d);
+
+  printVoxelBlocksFromPoint<<<1,1>>>(pointCloudVoxelBlocks_d, pointer_d);
 
   cudaDeviceSynchronize();
 }

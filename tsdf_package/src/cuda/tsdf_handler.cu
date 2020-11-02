@@ -180,6 +180,10 @@ TsdfHandler::TsdfHandler(){
   cudaMemcpy(hashTable_d, hashTable_h, sizeof(*hashTable_h), cudaMemcpyHostToDevice);
   cudaMalloc(&blockHeap_d, sizeof(*blockHeap_h));
   cudaMemcpy(blockHeap_d, blockHeap_h, sizeof(*blockHeap_h), cudaMemcpyHostToDevice);
+
+  // clock_ = std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME);
+  // tfBuffer = new tf2_ros::Buffer(clock_);
+  // tfListener = new tf2_ros::TransformListener(*tfBuffer);
 }
 
 size_t hashMe(Vector3f point){ //tested using int can get negatives
@@ -241,3 +245,21 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f points_h[], in
 
   //Remove unneeded blocks
 }
+
+//can make this its own function but need to make ssure buffer works then in main
+// Vector3f TsdfHandler::getOriginInPointCloudFrame(const std::string & target_frame, const sensor_msgs::msg::PointCloud2 & in){
+//   // Get the TF transform
+//   geometry_msgs::msg::TransformStamped transform;
+//   try { //wait for a duration
+//     transform =
+//       tf_buffer.lookupTransform(
+//       target_frame, in.header.frame_id, tf2_ros::fromMsg(in.header.stamp));
+//       //use transform to transform 0,0,0 and return
+//   } catch (tf2::LookupException & e) {
+//     RCLCPP_ERROR(rclcpp::get_logger("pcl_ros"), "%s", e.what());
+//   } catch (tf2::ExtrapolationException & e) {
+//     RCLCPP_ERROR(rclcpp::get_logger("pcl_ros"), "%s", e.what());
+//   }
+  
+//   return;
+// }
