@@ -23,14 +23,15 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
-extern void pointcloudMain( pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h);
+extern void pointcloudMain( pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, TsdfHandler * tsdfHandler);
 extern void testVoxelBlockTraversal();
 
 const std::string target_frame = "drone_1/LidarCustom";
 rclcpp::Clock::SharedPtr clock_;
 tf2_ros::Buffer* tfBuffer;
 tf2_ros::TransformListener* tfListener;
-const TsdfHandler * tsdfHandler;
+//set to const?
+TsdfHandler * tsdfHandler;
 geometry_msgs::msg::PointStamped point_in;
  
 
@@ -98,7 +99,7 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     pcl_conversions::toPCL(*msg,pcl_pc2);
     pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
-    pointcloudMain(temp_cloud, origin_transformed_h);
+    pointcloudMain(temp_cloud, origin_transformed_h, tsdfHandler);
 
    //I can do this transformation myself if I can get the transformation matrix, then in parallel carry out the transformation of the pc
     //printf("%lu\n", temp_cloud->size());
@@ -125,6 +126,11 @@ int main(int argc, char ** argv)
   clock_ = std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME);
   tfBuffer = new tf2_ros::Buffer(clock_);
   tfListener = new tf2_ros::TransformListener(*tfBuffer);
+  tsdfHandler = new TsdfHandler();
+  // Vector3f point_h[1];
+  // Vector3f A(1,1,1);
+  // point_h[0] = A;
+  // tsdfHandler->integrateVoxelBlockPointsIntoHashTable(point_h, 1);
 
   point_in.point.x = 0.0;
   point_in.point.y = 0.0;
@@ -144,7 +150,7 @@ int main(int argc, char ** argv)
   // //create hash table and everything here which is defined and implemented in tsdf_node.cuh and tsdf.cu. Then pass the table to pointCloudMain where point clouds are handled. Inside the class we hold all variables
 
       // int size= 8;
-      // Vector3f point_h[size];
+        // Vector3f point_h[size];
       // Vector3f A(1,1,1);
       // Vector3f B(2,2,2);
       // Vector3f C(3,3,3);

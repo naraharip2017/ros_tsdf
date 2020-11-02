@@ -13,27 +13,27 @@ typedef Eigen::Matrix<float, 3, 1> Vector3f;
 //rename to voxelBlock_handler
 __global__
 void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d){
-  HashEntry * hashEntries = hashTable_d->hashEntries;
-  for(size_t i=0;i<NUM_BUCKETS; ++i){
-    printf("Bucket: %lu\n", (unsigned long)i);
-    for(size_t it = 0; it<HASH_ENTRIES_PER_BUCKET; ++it){
-      HashEntry hashEntry = hashEntries[it+i*HASH_ENTRIES_PER_BUCKET];
-      Vector3f position = hashEntry.position;
-      if (hashEntry.isFree()){
-        printf("  Hash Entry with   Position: (N,N,N)   Offset: %d   Pointer: %d\n", hashEntry.offset, hashEntry.pointer);
-      }
-      else{
-        printf("  Hash Entry with   Position: (%f,%f,%f)   Offset: %d   Pointer: %d\n", position(0), position(1), position(2), hashEntry.offset, hashEntry.pointer);
-      }
-    }
-    printf("%s\n", "--------------------------------------------------------");
-  }
+  // HashEntry * hashEntries = hashTable_d->hashEntries;
+  // for(size_t i=0;i<NUM_BUCKETS; ++i){
+  //   printf("Bucket: %lu\n", (unsigned long)i);
+  //   for(size_t it = 0; it<HASH_ENTRIES_PER_BUCKET; ++it){
+  //     HashEntry hashEntry = hashEntries[it+i*HASH_ENTRIES_PER_BUCKET];
+  //     Vector3f position = hashEntry.position;
+  //     if (hashEntry.isFree()){
+  //       printf("  Hash Entry with   Position: (N,N,N)   Offset: %d   Pointer: %d\n", hashEntry.offset, hashEntry.pointer);
+  //     }
+  //     else{
+  //       printf("  Hash Entry with   Position: (%f,%f,%f)   Offset: %d   Pointer: %d\n", position(0), position(1), position(2), hashEntry.offset, hashEntry.pointer);
+  //     }
+  //   }
+  //   printf("%s\n", "--------------------------------------------------------");
+  // }
 
-  printf("Block Heap Free List: ");
-  int * freeBlocks = blockHeap_d->freeBlocks;
-  for(size_t i = 0; i<NUM_HEAP_BLOCKS; ++i){
-    printf("%d  ", freeBlocks[i]);
-  }
+  // printf("Block Heap Free List: ");
+  // int * freeBlocks = blockHeap_d->freeBlocks;
+  // for(size_t i = 0; i<NUM_HEAP_BLOCKS; ++i){
+  //   printf("%d  ", freeBlocks[i]);
+  // }
   printf("\nCurrent Index: %d\n", blockHeap_d->currentIndex);
 }
 
@@ -43,18 +43,21 @@ size_t retrieveHashIndexFromPoint(Vector3f point){ //tested using int can get ne
 }
 
 __global__
-void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d)
+void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d, int * size_d)
 {
   
   //REMEMBER THREAD SYNCHRONIZATION
   //CAN COPY GLOBAL MEMORY LOCALLY ANYWHERE AND THEN RESYNC WITH GLOBAL MEM?
 
   //check for block in table
-  int threadIndex = threadIdx.x;
+  int threadIndex = blockIdx.x*1024 + threadIdx.x;
+  if(threadIndex>=*size_d){
+    return;
+  }
   Vector3f point_d = points_d[threadIndex];
   size_t bucketIndex = retrieveHashIndexFromPoint(point_d);
   size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
-  printf("Point: (%f, %f, %f), Index: %lu\n", point_d(0), point_d(1), point_d(2), bucketIndex);
+  // printf("Point: (%f, %f, %f), Index: %lu\n", point_d(0), point_d(1), point_d(2), bucketIndex);
   HashEntry * hashEntries = hashTable_d->hashEntries;
   bool blockNotAllocated = true;
   HashEntry hashEntry;
@@ -78,7 +81,7 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
     hashEntry = hashEntries[currentGlobalIndex];
     if(hashEntry.checkIsPositionEqual(point_d)){ //what to do if positions are 0,0,0 then every initial block will map to the point
       blockNotAllocated = false; //update this to just return
-      printf("%s", "block allocated");
+      // printf("%s", "block allocated");
       break; //todo: return reference to block
       //return
     }
@@ -199,8 +202,16 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f points_h[], in
 
   size = unallocatedPointsVector.size();
 
+  // printf("size before: %d\n", size);
+
   Vector3f * point_h = &unallocatedPointsVector[0];
 
+  // printf("point1: (%f,%f,%f)\n", unallocatedPointsVector[0](0), unallocatedPointsVector[0](1), unallocatedPointsVector[0](2));
+
+  int * size_h = &size;
+  int * size_d;
+  cudaMalloc(&size_d, sizeof(*size_h));
+  cudaMemcpy(size_d, size_h, sizeof(*size_h), cudaMemcpyHostToDevice);
   bool * unallocatedPoints_h = new bool[size];
   for(int i=0;i<size;++i)
   {
@@ -213,7 +224,9 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f points_h[], in
   Vector3f * point_d;
   cudaMalloc(&point_d, sizeof(*point_h)*size);
   cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
-  allocateVoxelBlocks<<<1,size>>>(point_d, hashTable_d, blockHeap_d, unallocatedPoints_d);
+  int threadsPerCudaBlock = 1024;
+  int numCudaBlocks = size / threadsPerCudaBlock;
+  allocateVoxelBlocks<<<numCudaBlocks,threadsPerCudaBlock>>>(point_d, hashTable_d, blockHeap_d, unallocatedPoints_d, size_d);
   printHashTableAndBlockHeap<<<1,1>>>(hashTable_d, blockHeap_d);
 
   cudaDeviceSynchronize();
@@ -229,11 +242,13 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f points_h[], in
 
   unallocatedPointsVector = tempUnallocatedPointsVector;
 
-  for (int it = 0; it < unallocatedPointsVector.size(); ++it)
-  {
-    printf("%d: Unallocated Point: (%f, %f, %f) at index: %lu\n", it+1, unallocatedPointsVector[it](0), 
-    unallocatedPointsVector[it](1), unallocatedPointsVector[it](2), hashMe(unallocatedPointsVector[it]));
-  }
+  // printf("size after: %lu\n", unallocatedPointsVector.size());
+
+  // for (int it = 0; it < unallocatedPointsVector.size(); ++it)
+  // {
+  //   printf("%d: Unallocated Point: (%f, %f, %f) at index: %lu\n", it+1, unallocatedPointsVector[it](0), 
+  //   unallocatedPointsVector[it](1), unallocatedPointsVector[it](2), hashMe(unallocatedPointsVector[it]));
+  // }
   
   //process Points : points -> voxels -> voxel Blocks
 
