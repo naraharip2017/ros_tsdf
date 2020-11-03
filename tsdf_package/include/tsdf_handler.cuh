@@ -10,8 +10,9 @@
 
 #define VOXEL_PER_BLOCK 1
 #define HASH_ENTRIES_PER_BUCKET 2
-#define NUM_BUCKETS 500000
-#define NUM_HEAP_BLOCKS 200000
+#define NUM_BUCKETS 100
+#define HASH_TABLE_SIZE HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS
+#define NUM_HEAP_BLOCKS 64
 #define VOXEL_SIZE 1
 
 #define PRIME_ONE 73856093
@@ -68,7 +69,7 @@ struct HashEntry{
     short offset;
     int pointer;
     __device__ __host__
-    HashEntry():offset(0),pointer(0),position(0,0,0){
+    HashEntry():position(0,0,0),offset(0),pointer(0){
     }
     __device__ __host__
     HashEntry(Eigen::Matrix<float, 3, 1> position, int pointer):offset(0){
@@ -137,7 +138,7 @@ private:
     BlockHeap * blockHeap_h;
     BlockHeap * blockHeap_d;
 
-    std::vector<Eigen::Matrix<float, 3, 1>> unallocatedPointsVector;
+    // std::vector<Eigen::Matrix<float, 3, 1>> unallocatedPointsVector;
 
     // rclcpp::Clock::SharedPtr clock_;
     // tf2_ros::Buffer* tfBuffer;
