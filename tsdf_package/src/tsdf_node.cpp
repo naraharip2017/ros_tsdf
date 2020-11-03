@@ -77,6 +77,7 @@ void getOriginInPointCloudFrame(const std::string & target_frame, const sensor_m
 
 void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
+    auto start = std::chrono::high_resolution_clock::now();
     Vector3f origin_transformed;
     Vector3f * origin_transformed_h = &origin_transformed;
     getOriginInPointCloudFrame(target_frame, *msg, origin_transformed);
@@ -100,6 +101,9 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
     pointcloudMain(temp_cloud, origin_transformed_h, tsdfHandler);
+    auto stop = std::chrono::high_resolution_clock::now(); 
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); 
+    std::cout << duration.count() << std::endl; 
 
    //I can do this transformation myself if I can get the transformation matrix, then in parallel carry out the transformation of the pc
     //printf("%lu\n", temp_cloud->size());
