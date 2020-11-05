@@ -8,12 +8,13 @@
 // #include <tf2_ros/transform_listener.h>
 // #include <tf2_ros/buffer.h>
 
-#define VOXEL_PER_BLOCK 1
+#define VOXEL_PER_BLOCK 2
 #define HASH_ENTRIES_PER_BUCKET 2
-#define NUM_BUCKETS 100
+#define NUM_BUCKETS 4
 #define HASH_TABLE_SIZE HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS
-#define NUM_HEAP_BLOCKS 64
-#define VOXEL_SIZE 1
+#define NUM_HEAP_BLOCKS 8
+#define VOXEL_SIZE .5
+#define HALF_VOXEL_SIZE VOXEL_SIZE / 2
 
 #define PRIME_ONE 73856093
 #define PRIME_TWO 19349669
@@ -24,38 +25,12 @@ const float VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_BLOCK;
 const float HALF_VOXEL_BLOCK_SIZE = VOXEL_BLOCK_SIZE / 2;
 const float EPSILON = VOXEL_BLOCK_SIZE / 4;
 
-// struct Point{ //make own header file
-//     float x;
-//     float y;
-//     float z;
-//     __device__ __host__
-//     Point(float x, float y, float z){
-//         this->x = x;
-//         this->y = y;
-//         this->z = z;
-//     }
-//     __device__ __host__
-//     Point():x(0),y(0),z(0){}
-//     __device__ __host__
-//     bool operator==(Point& B){
-//         return (this->x==B.x) && (this->y == B.y) && (this->z == B.z);
-//     }
-//     __device__ __host__
-//     Point * operator-(Point& B){
-//         return new Point(this->x-B.x, this->y-B.y, this->z-B.z);
-//     }
-// };
-
 struct Voxel{
     float sdf;
-    //unsigned char sdf_color[3];
     float weight;
 
     __device__ __host__
     Voxel():sdf(0), weight(0) {}
-    // {
-    //     sdf_color[0] = sdf_color[1] = sdf_color[2] = 0;
-    // }
 };
 
 struct VoxelBlock{
@@ -128,21 +103,12 @@ public:
     __host__
     void integrateVoxelBlockPointsIntoHashTable(Eigen::Matrix<float, 3, 1> point_h[], int size);
 
-    // __host__
-    // Vector3f getOriginInPointCloudFrame(const std::string & target_frame, const sensor_msgs::msg::PointCloud2 & in);
-
 private:
     HashTable * hashTable_h;
     HashTable * hashTable_d;
 
     BlockHeap * blockHeap_h;
     BlockHeap * blockHeap_d;
-
-    // std::vector<Eigen::Matrix<float, 3, 1>> unallocatedPointsVector;
-
-    // rclcpp::Clock::SharedPtr clock_;
-    // tf2_ros::Buffer* tfBuffer;
-    // tf2_ros::TransformListener* tfListener;
 };
 
 #endif

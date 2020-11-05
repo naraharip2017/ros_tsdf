@@ -24,7 +24,8 @@
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
 extern void pointcloudMain( pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, TsdfHandler * tsdfHandler);
-extern void testVoxelBlockTraversal();
+extern void testVoxelBlockTraversal(TsdfHandler * tsdfHandler);
+extern void testVoxelTraversal();
 
 const std::string target_frame = "drone_1/LidarCustom";
 rclcpp::Clock::SharedPtr clock_;
@@ -61,7 +62,6 @@ void getOriginInPointCloudFrame(const std::string & target_frame, const sensor_m
     transform =
       tfBuffer->lookupTransform(
       in.header.frame_id, target_frame, tf2_ros::fromMsg(in.header.stamp), tf2::Duration(1000000000));
-      // Eigen::Affine3d world_to_camera = tf2::transformToEigen(transform_world_to_camera);
       tf2::doTransform(point_in, point_out, transform);
       auto point = point_out.point;
       origin_transformed(0) = point.x;
@@ -81,6 +81,7 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     Vector3f origin_transformed;
     Vector3f * origin_transformed_h = &origin_transformed;
     getOriginInPointCloudFrame(target_frame, *msg, origin_transformed);
+    
     // printf("(%f, %f, %f)\n", origin_transformed(0), origin_transformed(1), origin_transformed(2));
     // sensor_msgs::msg::PointCloud2::SharedPtr target_frame_msg;
     // transformPointCloud(target_frame, *msg.get(), *target_frame_msg.get(), *tfBuffer);
@@ -104,15 +105,6 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     auto stop = std::chrono::high_resolution_clock::now(); 
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); 
     std::cout << duration.count() << std::endl; 
-
-   //I can do this transformation myself if I can get the transformation matrix, then in parallel carry out the transformation of the pc
-    //printf("%lu\n", temp_cloud->size());
-    // Eigen::Vector4f sensor_origin = temp_cloud->sensor_origin_;
-    // std::cout << "Here is the vector v:\n" << sensor_origin << std::endl;
-    /*
-    This will convert the point cloud, then we can transfer to pointcloudMain. There we will find unique voxel block points for every point in pc..then
-    call the tsdf.cu for each voxel block. So I can return list of previous points that gets called 
-    */
 }
 
 int main(int argc, char ** argv)
@@ -187,12 +179,13 @@ int main(int argc, char ** argv)
   // point_h[0] = *A;
   // point_h[1] = *B;
     
-  // tsdfHandler = new TsdfHandler();
-  // testVoxelBlockTraversal();
+  tsdfHandler = new TsdfHandler();
+  //  testVoxelBlockTraversal();
+  testVoxelBlockTraversal(tsdfHandler);
 
   //addPoints
   
-  tsdfHandler->integrateVoxelBlockPointsIntoHashTable(point_h, size);
+  //tsdfHandler->integrateVoxelBlockPointsIntoHashTable(point_h, size);
   // Vector3f * point_h2;
   // tsdfHandler->integrateVoxelBlockPointsIntoHashTable(point_h2, 0);
   // tsdfHandler->integrateVoxelBlockPointsIntoHashTable(point_h2, 0);

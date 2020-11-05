@@ -20,6 +20,7 @@ find_package(ament_cmake REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
+SET(CUDA_SEPARABLE_COMPILATION ON)
 FIND_PACKAGE(CUDA REQUIRED)
 find_package(PCL REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -50,7 +51,7 @@ ament_target_dependencies(tsdf_node
 cuda_add_library(${PROJECT_NAME}_cuda SHARED
   src/cuda/pointcloud.cu
   src/cuda/tsdf_handler.cu
-  OPTIONS -arch sm_60  
+  OPTIONS -shared -Xcompiler -fPIC -arch=sm_60 -rdc=true
 )
 target_include_directories(${PROJECT_NAME}_cuda PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

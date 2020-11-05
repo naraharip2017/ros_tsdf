@@ -244,62 +244,6 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f points_h[], in
     cudaMemcpy(unallocatedPointsCount_h, unallocatedPointsCount_d, sizeof(*unallocatedPointsCount_h), cudaMemcpyDeviceToHost);
   }
 
-
-
-  // for(int i = 0; i<size; ++i){
-  //   unallocatedPointsVector.push_back(points_h[i]); //don't repeat points might get really crowded with repeat points since seeing same blocks over and over
-  // }
-
-  // size = unallocatedPointsVector.size();
-
-  // // printf("size before: %d\n", size);
-
-  // Vector3f * point_h = &unallocatedPointsVector[0];
-
-  // // printf("point1: (%f,%f,%f)\n", unallocatedPointsVector[0](0), unallocatedPointsVector[0](1), unallocatedPointsVector[0](2));
-
-  // int * size_h = &size;
-  // int * size_d;
-  // cudaMalloc(&size_d, sizeof(*size_h));
-  // cudaMemcpy(size_d, size_h, sizeof(*size_h), cudaMemcpyHostToDevice);
-  // bool * unallocatedPoints_h = new bool[size];
-  // for(int i=0;i<size;++i)
-  // {
-  //   unallocatedPoints_h[i] = 0;
-  // }
-  // bool * unallocatedPoints_d;
-  // cudaMalloc(&unallocatedPoints_d, sizeof(*unallocatedPoints_h)*size);
-  // cudaMemcpy(unallocatedPoints_d, unallocatedPoints_h, sizeof(*unallocatedPoints_h)*size, cudaMemcpyHostToDevice);
-  
-  // Vector3f * point_d;
-  // cudaMalloc(&point_d, sizeof(*point_h)*size);
-  // cudaMemcpy(point_d, point_h, sizeof(*point_h)*size, cudaMemcpyHostToDevice);
-  // int threadsPerCudaBlock = 1024;
-  // int numCudaBlocks = size / threadsPerCudaBlock + 1;
-  // allocateVoxelBlocks<<<numCudaBlocks,threadsPerCudaBlock>>>(point_d, hashTable_d, blockHeap_d, unallocatedPoints_d, size_d);
-  // printHashTableAndBlockHeap<<<1,1>>>(hashTable_d, blockHeap_d);
-
-  // cudaDeviceSynchronize();
-
-  // cudaMemcpy(unallocatedPoints_h, unallocatedPoints_d, sizeof(*unallocatedPoints_h)*size, cudaMemcpyDeviceToHost);
-
-  // std::vector<Vector3f> tempUnallocatedPointsVector; 
-  // for(int i = 0; i<size; ++i){
-  //   if(unallocatedPoints_h[i]){
-  //     tempUnallocatedPointsVector.push_back(point_h[i]);
-  //   }
-  // }
-
-  // unallocatedPointsVector = tempUnallocatedPointsVector;
-
-  // // printf("size after: %lu\n", unallocatedPointsVector.size());
-
-  // for (int it = 0; it < unallocatedPointsVector.size(); ++it)
-  // {
-  //   printf("%d: Unallocated Point: (%f, %f, %f) at index: %lu\n", it+1, unallocatedPointsVector[it](0), 
-  //   unallocatedPointsVector[it](1), unallocatedPointsVector[it](2), hashMe(unallocatedPointsVector[it]));
-  // }
-  
   //process Points : points -> voxels -> voxel Blocks
 
   //For each block insert to table either getting reference or inserting - lock
@@ -310,21 +254,3 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f points_h[], in
 
   //Remove unneeded blocks
 }
-
-//can make this its own function but need to make ssure buffer works then in main
-// Vector3f TsdfHandler::getOriginInPointCloudFrame(const std::string & target_frame, const sensor_msgs::msg::PointCloud2 & in){
-//   // Get the TF transform
-//   geometry_msgs::msg::TransformStamped transform;
-//   try { //wait for a duration
-//     transform =
-//       tf_buffer.lookupTransform(
-//       target_frame, in.header.frame_id, tf2_ros::fromMsg(in.header.stamp));
-//       //use transform to transform 0,0,0 and return
-//   } catch (tf2::LookupException & e) {
-//     RCLCPP_ERROR(rclcpp::get_logger("pcl_ros"), "%s", e.what());
-//   } catch (tf2::ExtrapolationException & e) {
-//     RCLCPP_ERROR(rclcpp::get_logger("pcl_ros"), "%s", e.what());
-//   }
-  
-//   return;
-// }
