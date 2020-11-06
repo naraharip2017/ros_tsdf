@@ -374,7 +374,7 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
 
  //do cuda free at end
  //overkill - how big should this be?
- Vector3f * voxels = new Vector3f[50]; //set in terms of truncation distance and voxel size
+ Vector3f * voxels = new Vector3f[200]; //set in terms of truncation distance and voxel size
  int size = 0;
  while(!checkFloatingPointVectorsEqual(currentBlock, truncation_end_voxel)){
    voxels[size] = currentBlock;

@@ -163,6 +163,7 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
                       HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
                       size_t insertPos = insertCurrentGlobalIndex + i;
                       hashEntries[insertPos] = *allocBlockHashEntry;
+                      cudaFree(allocBlock);
                       cudaFree(allocBlockHashEntry);
                       if(insertPos > currentGlobalIndex){
                         hashEntries[currentGlobalIndex].offset = insertPos - currentGlobalIndex;
