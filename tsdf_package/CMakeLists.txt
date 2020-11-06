@@ -51,7 +51,7 @@ ament_target_dependencies(tsdf_node
 cuda_add_library(${PROJECT_NAME}_cuda SHARED
   src/cuda/pointcloud.cu
   src/cuda/tsdf_handler.cu
-  OPTIONS -shared -Xcompiler -fPIC -arch=sm_60 -rdc=true
+  OPTIONS -shared -Xcompiler -fPIC -arch=sm_60 -rdc=true #-Xptxas=-v
 )
 target_include_directories(${PROJECT_NAME}_cuda PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

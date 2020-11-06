@@ -123,30 +123,30 @@ int main(int argc, char ** argv)
   tfBuffer = new tf2_ros::Buffer(clock_);
   tfListener = new tf2_ros::TransformListener(*tfBuffer);
   tsdfHandler = new TsdfHandler();
-  // Vector3f point_h[1];
-  // Vector3f A(1,1,1);
-  // point_h[0] = A;
-  // tsdfHandler->integrateVoxelBlockPointsIntoHashTable(point_h, 1);
+  // // Vector3f point_h[1];
+  // // Vector3f A(1,1,1);
+  // // point_h[0] = A;
+  // // tsdfHandler->integrateVoxelBlockPointsIntoHashTable(point_h, 1);
 
-  point_in.point.x = 0.0;
-  point_in.point.y = 0.0;
-  point_in.point.z = 0.0;
-  // Transformer *transformer = new Transformer();
+  // point_in.point.x = 0.0;
+  // point_in.point.y = 0.0;
+  // point_in.point.z = 0.0;
+  // // Transformer *transformer = new Transformer();
 
-  // auto node = rclcpp::Node::make_shared("my_subscriber");
+  auto node = rclcpp::Node::make_shared("my_subscriber");
 
-  // auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-  //   "/airsim_node/drone_1/lidar/LidarCustom", 1, callback
-  // ); //todo: should it be 1? might be .1 check publishing rate in airsim but the mapping pipeline runs at 2hz?
+  auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
+    "/airsim_node/drone_1/lidar/LidarCustom", 1, callback
+  ); //todo: should it be 1? might be .1 check publishing rate in airsim but the mapping pipeline runs at 2hz?
 
-  // rclcpp::spin(node);
+  rclcpp::spin(node);
 
-  // rclcpp::shutdown();
+  rclcpp::shutdown();
   
   // //create hash table and everything here which is defined and implemented in tsdf_node.cuh and tsdf.cu. Then pass the table to pointCloudMain where point clouds are handled. Inside the class we hold all variables
 
-      int size= 64;
-      Vector3f point_h[size];
+      // int size= 64;
+      // Vector3f point_h[size];
       // Vector3f A(1,1,1);
       // Vector3f B(5,5,5);
       // Vector3f C(9,9,9);
@@ -163,10 +163,10 @@ int main(int argc, char ** argv)
     //  point_h[0] = A;
     
 
-    for(int i=1; i<=size; i++){
-      Vector3f * p = new Vector3f(i,i,i);
-      point_h[i-1] = *p;
-    }
+    // for(int i=1; i<=size; i++){
+    //   Vector3f * p = new Vector3f(i,i,i);
+    //   point_h[i-1] = *p;
+    // }
 
     //     for(int i=1; i<=size; ++i){
     //   Point * p = new Point(i+4,i+4,i+4);
@@ -179,9 +179,8 @@ int main(int argc, char ** argv)
   // point_h[0] = *A;
   // point_h[1] = *B;
     
-  tsdfHandler = new TsdfHandler();
   //  testVoxelBlockTraversal();
-  testVoxelBlockTraversal(tsdfHandler);
+  // testVoxelBlockTraversal(tsdfHandler);
 
   //addPoints
   

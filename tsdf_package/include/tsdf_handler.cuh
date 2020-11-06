@@ -10,9 +10,9 @@
 
 #define VOXEL_PER_BLOCK 2
 #define HASH_ENTRIES_PER_BUCKET 2
-#define NUM_BUCKETS 4
+#define NUM_BUCKETS 1000000
 #define HASH_TABLE_SIZE HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS
-#define NUM_HEAP_BLOCKS 8
+#define NUM_HEAP_BLOCKS 200000
 #define VOXEL_SIZE .5
 #define HALF_VOXEL_SIZE VOXEL_SIZE / 2
 
@@ -35,8 +35,14 @@ struct Voxel{
 
 struct VoxelBlock{
     Voxel voxels[VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK];
+    int mutex[VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK];
+    //int mutex[VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK]; //change to bool
     __device__ __host__
-    VoxelBlock(){}
+    VoxelBlock(){
+        for(int i=0;i<VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK; ++i){
+            mutex[i] = 0;
+        }
+    }
 };
 
 struct HashEntry{
@@ -81,7 +87,7 @@ struct HashTable{
 };
 
 struct BlockHeap{
-    VoxelBlock blocks[NUM_HEAP_BLOCKS]; //how big do we want the environment 2 for now
+    VoxelBlock blocks[NUM_HEAP_BLOCKS]; 
     int freeBlocks[NUM_HEAP_BLOCKS];
     int currentIndex;
     BlockHeap() {   
@@ -102,6 +108,15 @@ public:
 
     __host__
     void integrateVoxelBlockPointsIntoHashTable(Eigen::Matrix<float, 3, 1> point_h[], int size);
+
+    __host__
+    HashTable * getCudaHashTable(){
+        return hashTable_d;
+    }
+
+    BlockHeap * getCudaBlockHeap(){
+        return blockHeap_d;
+    }
 
 private:
     HashTable * hashTable_h;
