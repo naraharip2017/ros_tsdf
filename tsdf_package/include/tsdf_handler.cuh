@@ -24,6 +24,7 @@
 const float VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_BLOCK;
 const float HALF_VOXEL_BLOCK_SIZE = VOXEL_BLOCK_SIZE / 2;
 const float EPSILON = VOXEL_BLOCK_SIZE / 4;
+const float VOXEL_EPSILON = VOXEL_SIZE / 4;
 
 struct Voxel{
     float sdf;

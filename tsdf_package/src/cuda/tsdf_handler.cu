@@ -79,7 +79,7 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
       unallocatedPoints_d[threadIndex] = 0;
       atomicSub(unallocatedPointsCount_d, 1);
       blockNotAllocated = false;
-      break; //todo: return reference to block
+      return; //todo: return reference to block
       //update this to just return
       //return
     }
@@ -101,7 +101,7 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
       atomicSub(unallocatedPointsCount_d, 1);
       blockNotAllocated = false; //update this to just return
       // printf("%s", "block allocated");
-      break; //todo: return reference to block
+      return; //todo: return reference to block
       //return
     }
   }
@@ -129,7 +129,8 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
             notInserted = false;
             unallocatedPoints_d[threadIndex] = 0;
             atomicSub(unallocatedPointsCount_d, 1);
-            break;
+            atomicExch(&hashTable_d->mutex[bucketIndex], 0);
+            return;
           }
         }
 
@@ -266,6 +267,8 @@ void TsdfHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f points_h[], in
   cudaFree(unallocatedPoints_d);
   cudaFree(unallocatedPointsCount_d);
   cudaFree(points_d);
+  free(unallocatedPoints_h);
+  free(unallocatedPointsCount_h);
 
   // Vector3f point = points_h[0];
 

@@ -314,12 +314,22 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
       voxel->sdf = newDistance;
       newWeight = min(newWeight, MAX_WEIGHT);
       voxel->weight = newWeight;
-      // voxel->sdf++;
-      // printf("sdf %f\n", voxel->sdf);
-      // printf("weight %f\n", voxel->weight);
+      //  voxel->sdf++;
+      //printf("voxel coords: (%f, %f, %f) with sdf: %f with weight: %f\n", voxelCoordinates(0),voxelCoordinates(1), voxelCoordinates(2), voxel->sdf, voxel->weight);
+      //  printf("sdf %f\n", voxel->sdf);
+      //  printf("weight %f\n", voxel->weight);
       atomicExch(mutex, 0);
     }
   }
+}
+
+__device__
+bool checkFloatingPointVoxelVectorsEqual(Vector3f A, Vector3f B){
+  Vector3f diff = A-B;
+  if((fabs(diff(0)) < VOXEL_EPSILON) && (fabs(diff(1)) < VOXEL_EPSILON) && (fabs(diff(2)) < VOXEL_EPSILON))
+    return true;
+
+  return false;
 }
 
 __global__
@@ -356,10 +366,10 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
  }
 
  Vector3f truncation_start_voxel = GetVoxelCenterFromPoint(truncation_start);
- // printf("Truncation start Block: (%f, %f, %f), hashes to %lu\n", truncation_start_block(0), truncation_start_block(1), truncation_start_block(2), retrieveHash(truncation_start_block));
+//  printf("Truncation start : (%f, %f, %f)\n", truncation_start_voxel(0), truncation_start_voxel(1), truncation_start_voxel(2));
  // printf("point in size_t: %d, %d, %d\n", (int)truncation_start_block(0), (int)truncation_start_block(1), (int)truncation_start_block(2));
  Vector3f truncation_end_voxel = GetVoxelCenterFromPoint(truncation_end);
- // printf("Truncation end Block: (%f, %f, %f), hashes to %lu\n", truncation_end_block(0), truncation_end_block(1), truncation_end_block(2), retrieveHash(truncation_end_block));
+//  printf("Truncation end : (%f, %f, %f)\n", truncation_end_voxel(0), truncation_end_voxel(1), truncation_end_voxel(2));
  // printf("point in size_t: %d, %d, %d\n", (int)truncation_end_block(0), (int)truncation_end_block(1), (int)truncation_end_block(2));
  float stepX = v(0) > 0 ? VOXEL_SIZE : -1 * VOXEL_SIZE;
  float stepY = v(1) > 0 ? VOXEL_SIZE : -1 * VOXEL_SIZE;
@@ -376,7 +386,7 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
  //overkill - how big should this be?
  Vector3f * voxels = new Vector3f[200]; //set in terms of truncation distance and voxel size
  int size = 0;
- while(!checkFloatingPointVectorsEqual(currentBlock, truncation_end_voxel)){
+ while(!checkFloatingPointVoxelVectorsEqual(currentBlock, truncation_end_voxel)){
    voxels[size] = currentBlock;
    size++;
   if(tMaxX < tMaxY){
@@ -434,10 +444,10 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
   }   
  }   
 
-//  printf("size: %d\n", size);
-
  voxels[size] = currentBlock;
  size++;
+
+//  printf("size: %d\n", size);
 
  Vector3f * lidarPoint = new Vector3f(point_d.x, point_d.y, point_d.z);
  //update to check if size is greater than threads per block
@@ -475,7 +485,7 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * o
   // cudaMemcpy(pointCloudVoxelBlockSize_d, pointCloudVoxelBlockSize_h, sizeof(int, ))
   //TODO: FIX
   // int maxBlocksPerPoint = ceil(pow(truncation_distance,3) / pow(VOXEL_BLOCK_SIZE, 3));
-  int maxBlocks = 5 * size;
+  int maxBlocks = 10 * size;
   // printf("maxBlocks: %d", maxBlocks);
   Vector3f pointCloudVoxelBlocks_h[maxBlocks];
   Vector3f * pointCloudVoxelBlocks_d;
@@ -497,10 +507,18 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * o
 
   int numCudaBlocks = size / threadsPerCudaBlock + 1;
   //since size can go over threads per block allocate this properly to include all data
+  // auto start1 = std::chrono::high_resolution_clock::now();
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start);
   getVoxelBlocksForPoint<<<numCudaBlocks,threadsPerCudaBlock>>>(points_d, pointCloudVoxelBlocks_d, pointer_d, origin_transformed_d, size_d);
   gpuErrchk( cudaPeekAtLastError() );
   cudaDeviceSynchronize();
-
+  // auto stop1 = std::chrono::high_resolution_clock::now();
+  // auto duration1 = std::chrono::duration_cast<std::chrono::milliseconds>(stop1 - start1); 
+  // std::cout << "get voxel blocks duration: ";
+  // std::cout << duration1.count() << std::endl; 
   //NOT NECESSARY - CHANGE THIS !
   cudaMemcpy(pointCloudVoxelBlocks_h, pointCloudVoxelBlocks_d, sizeof(*pointCloudVoxelBlocks_h)*maxBlocks,cudaMemcpyDeviceToHost);
   cudaMemcpy(pointer_h, pointer_d, sizeof(*pointer_h), cudaMemcpyDeviceToHost);
@@ -508,23 +526,61 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * o
   // printf("point: (%f,%f,%f)\n", pointCloudVoxelBlocks_h[0](0), pointCloudVoxelBlocks_h[0](1), pointCloudVoxelBlocks_h[0](2));
   // printf("int val: %d\n", *pointer_h);
 
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  float milliseconds = 0;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  printf("get voxel block duration: %f\n", milliseconds);
+
 
   // printf("size: %d\n", *pointer_h);
+  // auto start2 = std::chrono::high_resolution_clock::now();
+  cudaEvent_t start1, stop1;
+  cudaEventCreate(&start1);
+  cudaEventCreate(&stop1);
+  cudaEventRecord(start1);
   tsdfHandler->integrateVoxelBlockPointsIntoHashTable(pointCloudVoxelBlocks_h, *pointer_h);
+  // auto stop2 = std::chrono::high_resolution_clock::now();
+  // auto duration2 = std::chrono::duration_cast<std::chrono::milliseconds>(stop2 - start2); 
+  // std::cout<< "integrate voxel blocks duration: ";
+  // std::cout << duration2.count() << std::endl; 
   // cudaDeviceSynchronize();
 
   HashTable * hashTable_d = tsdfHandler->getCudaHashTable();
 
   BlockHeap * blockHeap_d = tsdfHandler->getCudaBlockHeap();
+
+  cudaEventRecord(stop1);
+  cudaEventSynchronize(stop1);
+  float milliseconds1 = 0;
+  cudaEventElapsedTime(&milliseconds1, start1, stop1);
+  printf("integrate voxel block duration: %f\n", milliseconds1);
+  // auto start3 = std::chrono::high_resolution_clock::now();
+  cudaEvent_t start2, stop2;
+  cudaEventCreate(&start2);
+  cudaEventCreate(&stop2);
+  cudaEventRecord(start2);
   getVoxelsForPoint<<<numCudaBlocks,threadsPerCudaBlock>>>(points_d, origin_transformed_d, hashTable_d, blockHeap_d, size_d);
   gpuErrchk( cudaPeekAtLastError() );
   cudaDeviceSynchronize();
+  // auto stop3 = std::chrono::high_resolution_clock::now();
+  // auto duration3 = std::chrono::duration_cast<std::chrono::milliseconds>(stop3 - start3); 
+  // std::cout<< "update voxels duration: ";
+  // std::cout << duration3.count() << std::endl; 
 
   cudaFree(size_d);
   cudaFree(points_d);
   cudaFree(pointCloudVoxelBlocks_d);
   cudaFree(pointer_d);
   cudaFree(origin_transformed_d);
+
+  cudaEventRecord(stop2);
+  cudaEventSynchronize(stop2);
+  float milliseconds2 = 0;
+  cudaEventElapsedTime(&milliseconds2, start2, stop2);
+  printf("update voxels duration: %f\n", milliseconds2);
+
+  free(pointer_h);
 
   // for(size_t i=0; i<points.size(); ++i){
   //     printf("Cloud with Points: %f, %f, %f\n", points[i].x,points[i].y,points[i].z);
@@ -534,7 +590,7 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * o
 void testVoxelBlockTraversal(TsdfHandler * tsdfHandler){
   // float f = 10.23423;
   int size = 5;
-  pcl::PointXYZ * point1 = new pcl::PointXYZ(.75,.75, .75);
+  pcl::PointXYZ * point1 = new pcl::PointXYZ(.75,.75, 0.75);
   pcl::PointXYZ * point2 = new pcl::PointXYZ(.80,.80, .80);
   pcl::PointXYZ * point3 = new pcl::PointXYZ(.85,.85, .85);
   pcl::PointXYZ * point4 = new pcl::PointXYZ(.90,.90, .90);

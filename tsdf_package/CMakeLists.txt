@@ -30,6 +30,7 @@ find_package(Boost REQUIRED COMPONENTS system)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 add_executable(tsdf_node src/tsdf_node.cpp)
 target_include_directories(tsdf_node PUBLIC
@@ -37,6 +38,7 @@ target_include_directories(tsdf_node PUBLIC
   $<INSTALL_INTERFACE:include>)
 
 ament_target_dependencies(tsdf_node 
+  "visualization_msgs"
   "CUDA"
   "rclcpp"
   "sensor_msgs"
@@ -51,7 +53,7 @@ ament_target_dependencies(tsdf_node
 cuda_add_library(${PROJECT_NAME}_cuda SHARED
   src/cuda/pointcloud.cu
   src/cuda/tsdf_handler.cu
-  OPTIONS -shared -Xcompiler -fPIC -arch=sm_60 -rdc=true #-Xptxas=-v
+  OPTIONS -g -shared -Xcompiler -fPIC -arch=sm_60 -rdc=true #-Xptxas=-v
 )
 target_include_directories(${PROJECT_NAME}_cuda PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

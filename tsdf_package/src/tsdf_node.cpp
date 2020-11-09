@@ -15,6 +15,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 // #include <geometry_msgs/msg/point_stamped.hpp>
 #include <iostream>
+#include <visualization_msgs/msg/marker.hpp>
 
 
 // const rclcpp::Clock::SharedPtr clock_;
@@ -27,13 +28,17 @@ extern void pointcloudMain( pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vect
 extern void testVoxelBlockTraversal(TsdfHandler * tsdfHandler);
 extern void testVoxelTraversal();
 
-const std::string target_frame = "drone_1/LidarCustom";
+const std::string source_frame = "drone_1/LidarCustom";
 rclcpp::Clock::SharedPtr clock_;
 tf2_ros::Buffer* tfBuffer;
 tf2_ros::TransformListener* tfListener;
 //set to const?
 TsdfHandler * tsdfHandler;
 geometry_msgs::msg::PointStamped point_in;
+Vector3f origin_transformed;
+Vector3f * origin_transformed_h = &origin_transformed;
+
+float average1, average2, count = 0.0;
  
 
 // float FloorFun(float x, float scale){
@@ -52,21 +57,29 @@ geometry_msgs::msg::PointStamped point_in;
 //   std::cout << "\n";
 // }
 
-void getOriginInPointCloudFrame(const std::string & target_frame, const sensor_msgs::msg::PointCloud2 & in, Vector3f & origin_transformed){
+void getOriginInPointCloudFrame(const sensor_msgs::msg::PointCloud2 & in, Vector3f & origin_transformed){
   // Get the TF transform
   geometry_msgs::msg::TransformStamped transform;
   geometry_msgs::msg::PointStamped point_out;
   point_in.header = in.header;
   try { //wait for a duration
   //transform from lidar frame to world frame
-    transform =
-      tfBuffer->lookupTransform(
-      in.header.frame_id, target_frame, tf2_ros::fromMsg(in.header.stamp), tf2::Duration(1000000000));
-      tf2::doTransform(point_in, point_out, transform);
-      auto point = point_out.point;
-      origin_transformed(0) = point.x;
-      origin_transformed(1) = point.y;
-      origin_transformed(2) = point.z;
+
+    auto header = in.header;
+    auto frame_id = header.frame_id;
+    auto stamp = header.stamp;
+    auto start = std::chrono::high_resolution_clock::now();
+    transform = tfBuffer->lookupTransform(frame_id, source_frame, tf2_ros::fromMsg(stamp), std::chrono::milliseconds(1000)); //trouble - continuously increasing in time to retrieve transformation
+    auto stop = std::chrono::high_resolution_clock::now(); 
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); 
+    std::cout << "transform duration: ";
+    std::cout << duration.count() << std::endl;
+    tf2::doTransform(point_in, point_out, transform);
+    auto point = point_out.point;
+    origin_transformed(0) = point.x;
+    origin_transformed(1) = point.y;
+    origin_transformed(2) = point.z;
+      
   } catch (tf2::LookupException & e) {
     RCLCPP_ERROR(rclcpp::get_logger("pcl_ros"), "%s", e.what());
   } catch (tf2::ExtrapolationException & e) {
@@ -78,9 +91,7 @@ void getOriginInPointCloudFrame(const std::string & target_frame, const sensor_m
 void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
     auto start = std::chrono::high_resolution_clock::now();
-    Vector3f origin_transformed;
-    Vector3f * origin_transformed_h = &origin_transformed;
-    getOriginInPointCloudFrame(target_frame, *msg, origin_transformed);
+    getOriginInPointCloudFrame(*msg, origin_transformed); // if this throws errors then don't do the point cloud update
     
     // printf("(%f, %f, %f)\n", origin_transformed(0), origin_transformed(1), origin_transformed(2));
     // sensor_msgs::msg::PointCloud2::SharedPtr target_frame_msg;
@@ -101,10 +112,20 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     pcl_conversions::toPCL(*msg,pcl_pc2);
     pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
+
+    // auto start1 = std::chrono::high_resolution_clock::now();
+    printf("point cloud size: %lu\n", temp_cloud->size());
     pointcloudMain(temp_cloud, origin_transformed_h, tsdfHandler);
     auto stop = std::chrono::high_resolution_clock::now(); 
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); 
-    std::cout << duration.count() << std::endl; 
+    std::cout << "overal duration: ";
+    std::cout << duration.count() << std::endl;
+    // auto stop1 = std::chrono::high_resolution_clock::now(); 
+    // auto duration1 = std::chrono::duration_cast<std::chrono::milliseconds>(stop1 - start1); 
+    std::cout << "cuda average duration: ";
+    average1 += duration.count();
+    count++;
+    std::cout << average1/count << std::endl; 
 }
 
 int main(int argc, char ** argv)
@@ -123,6 +144,11 @@ int main(int argc, char ** argv)
   tfBuffer = new tf2_ros::Buffer(clock_);
   tfListener = new tf2_ros::TransformListener(*tfBuffer);
   tsdfHandler = new TsdfHandler();
+    //  testVoxelBlockTraversal(tsdfHandler);
+      // origin_transformed(0) = 0;
+      // origin_transformed(1) = 0;
+      // origin_transformed(2) = 0;
+      
   // // Vector3f point_h[1];
   // // Vector3f A(1,1,1);
   // // point_h[0] = A;
@@ -135,13 +161,42 @@ int main(int argc, char ** argv)
 
   auto node = rclcpp::Node::make_shared("my_subscriber");
 
-  auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "/airsim_node/drone_1/lidar/LidarCustom", 1, callback
-  ); //todo: should it be 1? might be .1 check publishing rate in airsim but the mapping pipeline runs at 2hz?
+  // auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
+  //   "/airsim_node/drone_1/lidar/LidarCustom", 100, callback
+  // ); //todo: should it be 1? might be .1 check publishing rate in airsim but the mapping pipeline runs at 2hz?
 
+// visualization_msgs::MarkerArray* marker_array
+  visualization_msgs::msg::Marker marker;
+  marker.header.frame_id = "drone_1";
+  marker.header.stamp = clock_->now();
+  marker.ns = "lidar";
+  marker.id = 0;
+  marker.type = visualization_msgs::msg::Marker::SPHERE;
+  marker.action = visualization_msgs::msg::Marker::ADD;
+  marker.pose.position.x = 1;
+  marker.pose.position.y = 1;
+  marker.pose.position.z = 1;
+  marker.pose.orientation.x = 0.0;
+  marker.pose.orientation.y = 0.0;
+  marker.pose.orientation.z = 0.0;
+  marker.pose.orientation.w = 1.0;
+  marker.scale.x = 1;
+  marker.scale.y = 0.1;
+  marker.scale.z = 0.1;
+  marker.color.a = 1.0; // Don't forget to set the alpha!
+  marker.color.r = 0.0;
+  marker.color.g = 1.0;
+  marker.color.b = 0.0;
+
+  auto vis_pub = node->create_publisher<visualization_msgs::msg::Marker>("occupiedVoxels", 10);
+  vis_pub->publish(marker);
   rclcpp::spin(node);
 
   rclcpp::shutdown();
+
+  free(tfBuffer);
+  free(tfListener);
+  // free(tsdfHandler);
   
   // //create hash table and everything here which is defined and implemented in tsdf_node.cuh and tsdf.cu. Then pass the table to pointCloudMain where point clouds are handled. Inside the class we hold all variables
 
@@ -179,7 +234,6 @@ int main(int argc, char ** argv)
   // point_h[0] = *A;
   // point_h[1] = *B;
     
-  //  testVoxelBlockTraversal();
   // testVoxelBlockTraversal(tsdfHandler);
 
   //addPoints
