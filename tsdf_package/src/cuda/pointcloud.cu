@@ -315,7 +315,7 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
       newWeight = min(newWeight, MAX_WEIGHT);
       voxel->weight = newWeight;
       //  voxel->sdf++;
-      //printf("voxel coords: (%f, %f, %f) with sdf: %f with weight: %f\n", voxelCoordinates(0),voxelCoordinates(1), voxelCoordinates(2), voxel->sdf, voxel->weight);
+      // printf("voxel coords: (%f, %f, %f) with sdf: %f with weight: %f\n", voxelCoordinates(0),voxelCoordinates(1), voxelCoordinates(2), voxel->sdf, voxel->weight);
       //  printf("sdf %f\n", voxel->sdf);
       //  printf("weight %f\n", voxel->weight);
       atomicExch(mutex, 0);
@@ -447,7 +447,7 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
  voxels[size] = currentBlock;
  size++;
 
- printf("size: %d\n", size);
+//  printf("size: %d\n", size);
 
  Vector3f * lidarPoint = new Vector3f(point_d.x, point_d.y, point_d.z);
  //update to check if size is greater than threads per block
@@ -481,6 +481,7 @@ void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Vector3f 
     float yCoord = y * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(1);
     float zCoord = z * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(2);
   
+    // printf("voxel point calculated: (%f,%f,%f)\n", xCoord, yCoord,zCoord);
     Vector3f v(xCoord, yCoord, zCoord);
     int occupiedVoxelIndex = atomicAdd(&(*index), 1);
     occupiedVoxels[occupiedVoxelIndex] = v;
@@ -494,9 +495,6 @@ void visualizeOccupiedVoxels(HashTable * hashTable_d, BlockHeap * blockHeap_d, V
   if(hashEntry.isFree()){
     return;
   }
-
-
-
   int pointer = hashEntry.pointer;
   Vector3f * position = new Vector3f(hashEntry.position(0) - HALF_VOXEL_BLOCK_SIZE, 
   hashEntry.position(1)- HALF_VOXEL_BLOCK_SIZE,
@@ -512,7 +510,7 @@ void visualizeOccupiedVoxels(HashTable * hashTable_d, BlockHeap * blockHeap_d, V
 
 
 //takes sensor origin position
-void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, TsdfHandler * tsdfHandler)
+void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, TsdfHandler * tsdfHandler, Vector3f * occupiedVoxels_h, int * index_h)
 {
   //retrieve sensor origin..can use transformation from point cloud time stamp drone_1/lidar frame to drone_1 frame then transform 0,0,0
   
@@ -618,11 +616,32 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * o
   // std::cout<< "update voxels duration: ";
   // std::cout << duration3.count() << std::endl; 
 
+  Vector3f * occupiedVoxels_d;
+  int * index_d;
+  int occupiedVoxelsSize = 1000000;
+  cudaMalloc(&occupiedVoxels_d, sizeof(*occupiedVoxels_h)*occupiedVoxelsSize);
+  cudaMemcpy(occupiedVoxels_d, occupiedVoxels_h, sizeof(*occupiedVoxels_h)*occupiedVoxelsSize,cudaMemcpyHostToDevice);
+  cudaMalloc(&index_d, sizeof(*index_h));
+  cudaMemcpy(index_d, index_h, sizeof(*index_h), cudaMemcpyHostToDevice);
+
+  int numVisVoxBlocks = HASH_TABLE_SIZE / threadsPerCudaBlock + 1;
+  // printf("hash table size: %d\n", HASH_TABLE_SIZE);
+  visualizeOccupiedVoxels<<<numVisVoxBlocks,threadsPerCudaBlock>>>(hashTable_d, blockHeap_d, occupiedVoxels_d, index_d);
+
+  cudaDeviceSynchronize();
+
+  cudaMemcpy(occupiedVoxels_h, occupiedVoxels_d, sizeof(*occupiedVoxels_h)*occupiedVoxelsSize, cudaMemcpyDeviceToHost);
+  cudaMemcpy(index_h, index_d, sizeof(int), cudaMemcpyDeviceToHost);
+
+  printf("size of occupied voxels: %d\n", occupiedVoxels_h);
+
   cudaFree(size_d);
   cudaFree(points_d);
   cudaFree(pointCloudVoxelBlocks_d);
   cudaFree(pointer_d);
   cudaFree(origin_transformed_d);
+  cudaFree(occupiedVoxels_d); //instead of allocating and freeing over and over just add to tsdfhandler
+  cudaFree(index_d);
 
   cudaEventRecord(stop2);
   cudaEventSynchronize(stop2);
@@ -637,21 +656,21 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * o
   //   } 
 }
 
-void testVoxelBlockTraversal(TsdfHandler * tsdfHandler){
+void testVoxelBlockTraversal(TsdfHandler * tsdfHandler, Vector3f * occupiedVoxels_h, int * index_h){
   // float f = 10.23423;
-  int size = 1;
+  int size = 5;
   pcl::PointXYZ * point1 = new pcl::PointXYZ(.75,.75, 0.75);
-  pcl::PointXYZ * point2 = new pcl::PointXYZ(.80,.80, .80);
-  pcl::PointXYZ * point3 = new pcl::PointXYZ(.85,.85, .85);
+  pcl::PointXYZ * point2 = new pcl::PointXYZ(1.5,1.5, 1.5);
+  pcl::PointXYZ * point3 = new pcl::PointXYZ(-.85,-.85, -.85);
   pcl::PointXYZ * point4 = new pcl::PointXYZ(.90,.90, .90);
   pcl::PointXYZ * point5 = new pcl::PointXYZ(.65,.56, .65);
   
   pcl::PointXYZ * points_h = new pcl::PointXYZ[size];
   points_h[0] = *point1;
-  // points_h[1] = *point2;
-  // points_h[2] = *point3;
-  // points_h[3] = *point4;
-  // points_h[4] = *point5;
+  points_h[1] = *point2;
+  points_h[2] = *point3;
+  points_h[3] = *point4;
+  points_h[4] = *point5;
   pcl::PointXYZ * points_d;
   cudaMalloc(&points_d, sizeof(*points_h)*size);
   cudaMemcpy(points_d, points_h, sizeof(*points_h)*size, cudaMemcpyHostToDevice);
@@ -697,9 +716,7 @@ void testVoxelBlockTraversal(TsdfHandler * tsdfHandler){
 
   cudaDeviceSynchronize();
 
-  Vector3f occupiedVoxels_h[100];
   Vector3f * occupiedVoxels_d;
-  int * index_h = new int(0);
   int * index_d;
   cudaMalloc(&occupiedVoxels_d, sizeof(*occupiedVoxels_h)*100);
   cudaMemcpy(occupiedVoxels_d, occupiedVoxels_h, sizeof(*occupiedVoxels_h)*100,cudaMemcpyHostToDevice);
@@ -707,7 +724,7 @@ void testVoxelBlockTraversal(TsdfHandler * tsdfHandler){
   cudaMemcpy(index_d, index_h, sizeof(*index_h), cudaMemcpyHostToDevice);
 
   int numVisVoxBlocks = HASH_TABLE_SIZE / 128 + 1;
-  printf("hash table size: %d\n", HASH_TABLE_SIZE);
+  // printf("hash table size: %d\n", HASH_TABLE_SIZE);
   visualizeOccupiedVoxels<<<numVisVoxBlocks,128>>>(hashTable_d, blockHeap_d, occupiedVoxels_d, index_d);
 
   cudaDeviceSynchronize();
@@ -715,7 +732,11 @@ void testVoxelBlockTraversal(TsdfHandler * tsdfHandler){
   cudaMemcpy(occupiedVoxels_h, occupiedVoxels_d, sizeof(*occupiedVoxels_h)*100, cudaMemcpyDeviceToHost);
   cudaMemcpy(index_h, index_d, sizeof(int), cudaMemcpyDeviceToHost);
 
-  printf("occupied voxels: %d\n", *index_h);
+  // for(int i=0; i < *index_h; ++i){
+  //   printf("occupied voxel: (%f, %f, %f)\n", occupiedVoxels_h[i](0), occupiedVoxels_h[i](1), occupiedVoxels_h[i](2));
+  // }
+
+  // printf("occupied voxels: %d\n", *index_h);
 
 }
 

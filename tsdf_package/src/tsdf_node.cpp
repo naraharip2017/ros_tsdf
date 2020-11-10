@@ -25,8 +25,8 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
-extern void pointcloudMain( pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, TsdfHandler * tsdfHandler);
-extern void testVoxelBlockTraversal(TsdfHandler * tsdfHandler);
+extern void pointcloudMain( pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, TsdfHandler * tsdfHandler, Vector3f * occupiedVoxels_h, int * index_h);
+extern void testVoxelBlockTraversal(TsdfHandler * tsdfHandler, Vector3f * occupiedVoxels_h, int * index_h);
 extern void testVoxelTraversal();
 // void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
@@ -43,6 +43,8 @@ Vector3f * origin_transformed_h = &origin_transformed;
 rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub;
 
 float average1, count = 0.0;
+
+Vector3f occupiedVoxels[1000000];
  
 // float FloorFun(float x, float scale){
 //   return floor(x*scale) / scale;
@@ -93,64 +95,77 @@ void getOriginInPointCloudFrame(const sensor_msgs::msg::PointCloud2 & in, Vector
 
 void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
-    visualization_msgs::msg::Marker marker;
-    marker.header.frame_id = "drone_1";
-    marker.header.stamp = clock_->now();
-    marker.ns = "lidar";
-    marker.id = 0;
-    marker.type = visualization_msgs::msg::Marker::CUBE;
-    marker.action = visualization_msgs::msg::Marker::ADD;
-    marker.pose.position.x = 0;
-    marker.pose.position.y = 0;
-    marker.pose.position.z = 0;
-    marker.pose.orientation.x = 0.0;
-    marker.pose.orientation.y = 0.0;
-    marker.pose.orientation.z = 0.0;
-    marker.pose.orientation.w = 1.0;
-    marker.scale.x = .1;
-    marker.scale.y = .1;
-    marker.scale.z = .1;
-    marker.color.a = 1.0; // Don't forget to set the alpha!
-    marker.color.r = 0.0;
-    marker.color.g = 1.0;
-    marker.color.b = 0.0;
-    //vis_pub->publish(marker);
-    // auto start = std::chrono::high_resolution_clock::now();
-    // getOriginInPointCloudFrame(*msg, origin_transformed); // if this throws errors then don't do the point cloud update
+    auto start = std::chrono::high_resolution_clock::now();
+    getOriginInPointCloudFrame(*msg, origin_transformed); // if this throws errors then don't do the point cloud update
     
-    // // printf("(%f, %f, %f)\n", origin_transformed(0), origin_transformed(1), origin_transformed(2));
-    // // sensor_msgs::msg::PointCloud2::SharedPtr target_frame_msg;
-    // // transformPointCloud(target_frame, *msg.get(), *target_frame_msg.get(), *tfBuffer);
-    // // pcl::PointCloud<pcl::PointXYZRGB> pointcloud_pcl;
-    // // pcl::fromROSMsg(*msg, pointcloud_pcl);
-    // //target frame, target time, fixed frame, tf listener, cloud in/out
-    // //convert point cloud
-    // // pcl::PointCloud<pcl::PointXYZ>::Ptr converted_temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    // // pcl::PCLHeader header = temp_cloud->header;  
-    // // std::string frame_id = header.frame_id;
-    // // pcl::uint64_t stamp = header.stamp;
+    // printf("(%f, %f, %f)\n", origin_transformed(0), origin_transformed(1), origin_transformed(2));
+    // sensor_msgs::msg::PointCloud2::SharedPtr target_frame_msg;
+    // transformPointCloud(target_frame, *msg.get(), *target_frame_msg.get(), *tfBuffer);
+    // pcl::PointCloud<pcl::PointXYZRGB> pointcloud_pcl;
+    // pcl::fromROSMsg(*msg, pointcloud_pcl);
+    //target frame, target time, fixed frame, tf listener, cloud in/out
+    //convert point cloud
+    // pcl::PointCloud<pcl::PointXYZ>::Ptr converted_temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    // pcl::PCLHeader header = temp_cloud->header;  
+    // std::string frame_id = header.frame_id;
+    // pcl::uint64_t stamp = header.stamp;
 
-    // //get sensor origin with PointCloud2 and tsdf_handler object pass that to pointcloudMain
-    // // tsdfHandler.
+    //get sensor origin with PointCloud2 and tsdf_handler object pass that to pointcloudMain
+    // tsdfHandler.
 
-    // pcl::PCLPointCloud2 pcl_pc2;
-    // pcl_conversions::toPCL(*msg,pcl_pc2);
-    // pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-    // pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
+    pcl::PCLPointCloud2 pcl_pc2;
+    pcl_conversions::toPCL(*msg,pcl_pc2);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
 
-    // // auto start1 = std::chrono::high_resolution_clock::now();
-    // printf("point cloud size: %lu\n", temp_cloud->size());
-    // pointcloudMain(temp_cloud, origin_transformed_h, tsdfHandler);
-    // auto stop = std::chrono::high_resolution_clock::now(); 
-    // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); 
-    // std::cout << "overal duration: ";
-    // std::cout << duration.count() << std::endl;
-    // // auto stop1 = std::chrono::high_resolution_clock::now(); 
-    // // auto duration1 = std::chrono::duration_cast<std::chrono::milliseconds>(stop1 - start1); 
-    // std::cout << "cuda average duration: ";
-    // average1 += duration.count();
-    // count++;
-    // std::cout << average1/count << std::endl; 
+    // auto start1 = std::chrono::high_resolution_clock::now();
+    printf("point cloud size: %lu\n", temp_cloud->size());
+    int * occupiedVoxelsIndex = new int(0);
+    pointcloudMain(temp_cloud, origin_transformed_h, tsdfHandler, occupiedVoxels, occupiedVoxelsIndex);
+    printf("occupied voxels: %d\n", *occupiedVoxelsIndex);
+
+    visualization_msgs::msg::MarkerArray markerArray;
+    // markerArray.markers.resize(*occupiedVoxelsIndex);
+    // for(int i=0;i<*occupiedVoxelsIndex;i++){
+    //   Vector3f v = occupiedVoxels[i];
+    //   visualization_msgs::msg::Marker marker;
+    //   marker.header.frame_id = "drone_1";
+    //   marker.header.stamp = clock_->now();
+    //   marker.ns = "lidar";
+    //   marker.id = v(0) + 10*v(1) + 100*v(2);
+    //   marker.type = visualization_msgs::msg::Marker::CUBE;
+    //   marker.action = visualization_msgs::msg::Marker::ADD;
+    //   marker.pose.position.x = v(0);
+    //   marker.pose.position.y = v(1);
+    //   marker.pose.position.z = v(2);
+    //   marker.pose.orientation.x = 0.0;
+    //   marker.pose.orientation.y = 0.0;
+    //   marker.pose.orientation.z = 0.0;
+    //   marker.pose.orientation.w = 1.0;
+    //   marker.scale.x = .1;
+    //   marker.scale.y = .1;
+    //   marker.scale.z = .1;
+    //   marker.color.a = 1.0; // Don't forget to set the alpha!
+    //   marker.color.r = 0.0;
+    //   marker.color.g = 1.0;
+    //   marker.color.b = 0.0;
+    //   markerArray.markers[i] = marker;
+    // }
+
+    // vis_pub->publish(markerArray);
+
+    free(occupiedVoxelsIndex);
+
+    auto stop = std::chrono::high_resolution_clock::now(); 
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); 
+    std::cout << "overal duration: ";
+    std::cout << duration.count() << std::endl;
+    // auto stop1 = std::chrono::high_resolution_clock::now(); 
+    // auto duration1 = std::chrono::duration_cast<std::chrono::milliseconds>(stop1 - start1); 
+    std::cout << "cuda average duration: ";
+    average1 += duration.count();
+    count++;
+    std::cout << average1/count << std::endl; 
 }
 
 int main(int argc, char ** argv)
@@ -169,7 +184,11 @@ int main(int argc, char ** argv)
   tfBuffer = new tf2_ros::Buffer(clock_);
   tfListener = new tf2_ros::TransformListener(*tfBuffer);
   tsdfHandler = new TsdfHandler();
-     testVoxelBlockTraversal(tsdfHandler);
+  // testVoxelBlockTraversal(tsdfHandler, occupiedVoxels, occupiedVoxelsIndex);
+  //      for(int i=0; i < 3; ++i){
+  //   printf("occupied voxel: (%f, %f, %f)\n", occupiedVoxels[i](0), occupiedVoxels[i](1), occupiedVoxels[i](2));
+  // }
+    // printf("occupied voxels: %d\n", *occupiedVoxelsIndex);
       // origin_transformed(0) = 0;
       // origin_transformed(1) = 0;
       // origin_transformed(2) = 0;
@@ -190,10 +209,40 @@ int main(int argc, char ** argv)
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
     "/airsim_node/drone_1/lidar/LidarCustom", 100, callback
   ); //todo: should it be 1? might be .1 check publishing rate in airsim but the mapping pipeline runs at 2hz?
-  vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 100);
+  vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 1);
   rclcpp::spin(node);
-  //     while(rclcpp::ok()){
-
+  // while(rclcpp::ok()){
+  //   vis_pub->publish(markerArray);
+  // }
+  //   while(rclcpp::ok()){
+  //   // visualization_msgs::msg::MarkerArray markerArray;
+  //   // markerArray.markers.resize(3);
+  //   visualization_msgs::msg::Marker marker;
+  //   marker.type = visualization_msgs::msg::Marker::POINTS;
+  //   marker.action = visualization_msgs::msg::Marker::ADD;
+  //   marker.header.frame_id = "map";
+  //   marker.ns = "lidar";
+  //   marker.id = 0;
+  //   marker.pose.orientation.w = 1.0;
+  //   marker.scale.x = .1;
+  //   marker.scale.y = .1;
+  //   marker.scale.z = .1;
+  //   marker.color.a = 1.0; // Don't forget to set the alpha!
+  //   marker.color.r = 0.0;
+  //   marker.color.g = 1.0;
+  //   marker.color.b = 0.0;
+  //   for(int i=0;i<3;i++){
+  //     Vector3f v = occupiedVoxels[i];
+  //     geometry_msgs::msg::Point p;
+  //     p.x = v(0);
+  //     p.y = v(1);
+  //     p.z = v(2);
+  //     marker.points.push_back(p);
+  //     // visualization_msgs::msg::Marker marker;
+  //     // markerArray.markers[i] = marker;
+  //   }
+  //   marker.header.stamp = clock_->now();
+  //   vis_pub->publish(marker);
   // }
   rclcpp::shutdown();
 
