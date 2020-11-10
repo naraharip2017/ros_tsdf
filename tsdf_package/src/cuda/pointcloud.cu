@@ -491,6 +491,7 @@ void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Vector3f 
 __global__
 void visualizeOccupiedVoxels(HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * occupiedVoxels, int * index){
   int threadIndex = blockIdx.x*128 +threadIdx.x;
+  if(threadIndex >= HASH_TABLE_SIZE) return;
   HashEntry hashEntry = hashTable_d->hashEntries[threadIndex];
   if(hashEntry.isFree()){
     return;
@@ -504,8 +505,9 @@ void visualizeOccupiedVoxels(HashTable * hashTable_d, BlockHeap * blockHeap_d, V
   int size = VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK;
   int numBlocks = size/1024 + 1;
   processOccupiedVoxelBlock<<<numBlocks,1024>>>(occupiedVoxels, index, position, block);
+  cdpErrchk(cudaPeekAtLastError());
   cudaFree(position);
-  cudaFree(block);
+  // cudaFree(block);
 }
 
 
@@ -627,13 +629,13 @@ void pointcloudMain(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * o
   int numVisVoxBlocks = HASH_TABLE_SIZE / threadsPerCudaBlock + 1;
   // printf("hash table size: %d\n", HASH_TABLE_SIZE);
   visualizeOccupiedVoxels<<<numVisVoxBlocks,threadsPerCudaBlock>>>(hashTable_d, blockHeap_d, occupiedVoxels_d, index_d);
-
+  gpuErrchk( cudaPeekAtLastError() );
   cudaDeviceSynchronize();
 
   cudaMemcpy(occupiedVoxels_h, occupiedVoxels_d, sizeof(*occupiedVoxels_h)*occupiedVoxelsSize, cudaMemcpyDeviceToHost);
   cudaMemcpy(index_h, index_d, sizeof(int), cudaMemcpyDeviceToHost);
 
-  printf("size of occupied voxels: %d\n", occupiedVoxels_h);
+  printf("size of occupied voxels: %d\n", *index_h);
 
   cudaFree(size_d);
   cudaFree(points_d);

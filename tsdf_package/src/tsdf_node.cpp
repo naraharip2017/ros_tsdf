@@ -122,37 +122,37 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     printf("point cloud size: %lu\n", temp_cloud->size());
     int * occupiedVoxelsIndex = new int(0);
     pointcloudMain(temp_cloud, origin_transformed_h, tsdfHandler, occupiedVoxels, occupiedVoxelsIndex);
-    printf("occupied voxels: %d\n", *occupiedVoxelsIndex);
+    // printf("occupied voxels: %d\n", *occupiedVoxelsIndex);
 
     visualization_msgs::msg::MarkerArray markerArray;
-    // markerArray.markers.resize(*occupiedVoxelsIndex);
-    // for(int i=0;i<*occupiedVoxelsIndex;i++){
-    //   Vector3f v = occupiedVoxels[i];
-    //   visualization_msgs::msg::Marker marker;
-    //   marker.header.frame_id = "drone_1";
-    //   marker.header.stamp = clock_->now();
-    //   marker.ns = "lidar";
-    //   marker.id = v(0) + 10*v(1) + 100*v(2);
-    //   marker.type = visualization_msgs::msg::Marker::CUBE;
-    //   marker.action = visualization_msgs::msg::Marker::ADD;
-    //   marker.pose.position.x = v(0);
-    //   marker.pose.position.y = v(1);
-    //   marker.pose.position.z = v(2);
-    //   marker.pose.orientation.x = 0.0;
-    //   marker.pose.orientation.y = 0.0;
-    //   marker.pose.orientation.z = 0.0;
-    //   marker.pose.orientation.w = 1.0;
-    //   marker.scale.x = .1;
-    //   marker.scale.y = .1;
-    //   marker.scale.z = .1;
-    //   marker.color.a = 1.0; // Don't forget to set the alpha!
-    //   marker.color.r = 0.0;
-    //   marker.color.g = 1.0;
-    //   marker.color.b = 0.0;
-    //   markerArray.markers[i] = marker;
-    // }
+    markerArray.markers.resize(*occupiedVoxelsIndex);
+    for(int i=0;i<*occupiedVoxelsIndex;i++){
+      Vector3f v = occupiedVoxels[i];
+      visualization_msgs::msg::Marker marker;
+      marker.header.frame_id = "drone_1";
+      marker.header.stamp = clock_->now();
+      marker.ns = "lidar";
+      marker.id = v(0) + 10*v(1) + 100*v(2);
+      marker.type = visualization_msgs::msg::Marker::CUBE;
+      marker.action = visualization_msgs::msg::Marker::ADD;
+      marker.pose.position.x = v(0);
+      marker.pose.position.y = v(1);
+      marker.pose.position.z = v(2);
+      marker.pose.orientation.x = 0.0;
+      marker.pose.orientation.y = 0.0;
+      marker.pose.orientation.z = 0.0;
+      marker.pose.orientation.w = 1.0;
+      marker.scale.x = .1;
+      marker.scale.y = .1;
+      marker.scale.z = .1;
+      marker.color.a = 1.0; // Don't forget to set the alpha!
+      marker.color.r = 0.0;
+      marker.color.g = 1.0;
+      marker.color.b = 0.0;
+      markerArray.markers[i] = marker;
+    }
 
-    // vis_pub->publish(markerArray);
+    vis_pub->publish(markerArray);
 
     free(occupiedVoxelsIndex);
 
@@ -248,7 +248,7 @@ int main(int argc, char ** argv)
 
   free(tfBuffer);
   free(tfListener);
-  // free(tsdfHandler);
+  free(tsdfHandler);
   
   // //create hash table and everything here which is defined and implemented in tsdf_node.cuh and tsdf.cu. Then pass the table to pointCloudMain where point clouds are handled. Inside the class we hold all variables
 
