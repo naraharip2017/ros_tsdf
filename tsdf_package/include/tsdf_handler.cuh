@@ -8,12 +8,12 @@
 // #include <tf2_ros/transform_listener.h>
 // #include <tf2_ros/buffer.h>
 
-#define VOXEL_PER_BLOCK 10
+#define VOXEL_PER_BLOCK 2
 #define HASH_ENTRIES_PER_BUCKET 2
 #define NUM_BUCKETS 1000000
 #define HASH_TABLE_SIZE HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS
 #define NUM_HEAP_BLOCKS 200000
-#define VOXEL_SIZE .1
+#define VOXEL_SIZE .5
 #define HALF_VOXEL_SIZE VOXEL_SIZE / 2
 
 #define PRIME_ONE 73856093

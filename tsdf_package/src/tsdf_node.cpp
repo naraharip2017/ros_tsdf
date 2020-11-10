@@ -125,38 +125,65 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     // printf("occupied voxels: %d\n", *occupiedVoxelsIndex);
 
     visualization_msgs::msg::MarkerArray markerArray;
-    markerArray.markers.resize(*occupiedVoxelsIndex);
+    markerArray.markers.resize(1);
+    // for(int i=0;i<*occupiedVoxelsIndex;i++){
+    //   Vector3f v = occupiedVoxels[i];
+    //   visualization_msgs::msg::Marker marker;
+    //   marker.header.frame_id = "drone_1";
+    //   rclcpp::Time t(0);
+    //   marker.header.stamp = clock_->now();
+    //   marker.ns = "lidar";
+    //   marker.id = i;
+    //   marker.type = visualization_msgs::msg::Marker::CUBE;
+    //   marker.action = visualization_msgs::msg::Marker::ADD;
+    //   marker.pose.position.x = v(1);
+    //   marker.pose.position.y = v(0);
+    //   marker.pose.position.z = v(2)*-1;
+    //   // marker.pose.position.x = v(0);
+    //   // marker.pose.position.y = v(1);
+    //   // marker.pose.position.z = v(2);
+    //   marker.pose.orientation.x = 0.0;
+    //   marker.pose.orientation.y = 0.0;
+    //   marker.pose.orientation.z = 0.0;
+    //   marker.pose.orientation.w = 1.0;
+    //   marker.scale.x = .1;
+    //   marker.scale.y = .1;
+    //   marker.scale.z = .1;
+    //   marker.color.a = 1.0; // Don't forget to set the alpha!
+    //   marker.color.r = 0.0;
+    //   marker.color.g = 1.0;
+    //   marker.color.b = 0.0;
+    //   markerArray.markers[i] = marker;
+    // }
+      visualization_msgs::msg::Marker marker;
+    marker.type = visualization_msgs::msg::Marker::POINTS;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.header.frame_id = "drone_1";
+    marker.ns = "lidar";
+    marker.id = 0;
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = .1;
+    marker.scale.y = .1;
+    marker.scale.z = .1;
+    marker.color.a = 1.0; // Don't forget to set the alpha!
+    marker.color.r = 0.0;
+    marker.color.g = 1.0;
+    marker.color.b = 0.0;
     for(int i=0;i<*occupiedVoxelsIndex;i++){
       Vector3f v = occupiedVoxels[i];
-      visualization_msgs::msg::Marker marker;
-      marker.header.frame_id = "drone_1";
-      rclcpp::Time t(0);
-      marker.header.stamp = clock_->now();
-      marker.ns = "lidar";
-      marker.id = i;
-      marker.type = visualization_msgs::msg::Marker::CUBE;
-      marker.action = visualization_msgs::msg::Marker::ADD;
-      marker.pose.position.x = v(1);
-      marker.pose.position.y = v(0);
-      marker.pose.position.z = v(2)*-1;
-      // marker.pose.position.x = v(0);
-      // marker.pose.position.y = v(1);
-      // marker.pose.position.z = v(2);
-      marker.pose.orientation.x = 0.0;
-      marker.pose.orientation.y = 0.0;
-      marker.pose.orientation.z = 0.0;
-      marker.pose.orientation.w = 1.0;
-      marker.scale.x = .1;
-      marker.scale.y = .1;
-      marker.scale.z = .1;
-      marker.color.a = 1.0; // Don't forget to set the alpha!
-      marker.color.r = 0.0;
-      marker.color.g = 1.0;
-      marker.color.b = 0.0;
-      markerArray.markers[i] = marker;
+      geometry_msgs::msg::Point p;
+      p.x = v(1);
+      p.y = v(0);
+      p.z = v(2)*-1;
+      marker.points.push_back(p);
+      // visualization_msgs::msg::Marker marker;
+      // markerArray.markers[i] = marker;
     }
 
+    marker.header.stamp = clock_->now();
+    markerArray.markers[0] = marker;
     vis_pub->publish(markerArray);
+
 
     free(occupiedVoxelsIndex);
 
