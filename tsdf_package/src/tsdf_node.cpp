@@ -130,14 +130,18 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
       Vector3f v = occupiedVoxels[i];
       visualization_msgs::msg::Marker marker;
       marker.header.frame_id = "drone_1";
+      rclcpp::Time t(0);
       marker.header.stamp = clock_->now();
       marker.ns = "lidar";
-      marker.id = v(0) + 10*v(1) + 100*v(2);
+      marker.id = i;
       marker.type = visualization_msgs::msg::Marker::CUBE;
       marker.action = visualization_msgs::msg::Marker::ADD;
-      marker.pose.position.x = v(0);
-      marker.pose.position.y = v(1);
-      marker.pose.position.z = v(2);
+      marker.pose.position.x = v(1);
+      marker.pose.position.y = v(0);
+      marker.pose.position.z = v(2)*-1;
+      // marker.pose.position.x = v(0);
+      // marker.pose.position.y = v(1);
+      // marker.pose.position.z = v(2);
       marker.pose.orientation.x = 0.0;
       marker.pose.orientation.y = 0.0;
       marker.pose.orientation.z = 0.0;
@@ -209,7 +213,7 @@ int main(int argc, char ** argv)
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
     "/airsim_node/drone_1/lidar/LidarCustom", 100, callback
   ); //todo: should it be 1? might be .1 check publishing rate in airsim but the mapping pipeline runs at 2hz?
-  vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 1);
+  vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 100);
   rclcpp::spin(node);
   // while(rclcpp::ok()){
   //   vis_pub->publish(markerArray);

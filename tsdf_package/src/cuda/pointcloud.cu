@@ -462,7 +462,7 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
 
 __global__
 void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Vector3f * position, VoxelBlock * block){
-  int threadIndex = blockIdx.x*1024 + threadIdx.x;
+  int threadIndex = blockIdx.x*128 + threadIdx.x;
   if(threadIndex >= VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK){
     return;
   }
@@ -503,8 +503,8 @@ void visualizeOccupiedVoxels(HashTable * hashTable_d, BlockHeap * blockHeap_d, V
 
   VoxelBlock * block = &(blockHeap_d->blocks[pointer]);
   int size = VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK;
-  int numBlocks = size/1024 + 1;
-  processOccupiedVoxelBlock<<<numBlocks,1024>>>(occupiedVoxels, index, position, block);
+  int numBlocks = size/128 + 1;
+  processOccupiedVoxelBlock<<<numBlocks,128>>>(occupiedVoxels, index, position, block);
   cdpErrchk(cudaPeekAtLastError());
   cudaFree(position);
   // cudaFree(block);
