@@ -53,10 +53,13 @@ ament_target_dependencies(tsdf_node
   "tf2_geometry_msgs"
 )
 
+CUDA_SELECT_NVCC_ARCH_FLAGS(ARCH_FLAGS Auto)
+SET(CUDA_NVCC_FLAGS ${ARCH_FLAGS} CACHE STRING "nvcc flags" FORCE)
+
 cuda_add_library(${PROJECT_NAME}_cuda SHARED
   src/cuda/tsdf_handler.cu
   src/cuda/tsdf_container.cu
-  OPTIONS -g -shared -Xcompiler -fPIC -arch=sm_60 -rdc=true #-Xptxas=-v
+  OPTIONS -g -shared -Xcompiler -fPIC -rdc=true #-Xptxas=-v
 )
 target_include_directories(${PROJECT_NAME}_cuda PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

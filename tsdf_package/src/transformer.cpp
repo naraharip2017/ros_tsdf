@@ -1,8 +1,7 @@
 #include "transformer.hpp"
 
-Transformer::Transformer(std::string source_frame_){
-    clock_ = std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME);
-    tf_buffer = new tf2_ros::Buffer(clock_);
+Transformer::Transformer(std::string source_frame_, rclcpp::Clock::SharedPtr clock_){
+    tf_buffer = new tf2_ros::Buffer(clock_); 
     tf_listener = new tf2_ros::TransformListener(*tf_buffer);
     source_frame = source_frame_;
 }
@@ -11,9 +10,7 @@ void Transformer::getOriginInPointCloudFrame(const sensor_msgs::msg::PointCloud2
   geometry_msgs::msg::TransformStamped transform;
   geometry_msgs::msg::PointStamped point_out;
   origin_in.header = in.header;
-  try { //wait for a duration
-  //transform from lidar frame to world frame
-
+  try { 
     auto header = in.header;
     auto frame_id = header.frame_id;
     auto stamp = header.stamp;

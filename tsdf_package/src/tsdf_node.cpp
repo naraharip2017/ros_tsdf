@@ -23,36 +23,61 @@ rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub;
 float average1, count = 0.0;
 
 Vector3f occupiedVoxels[200000];
+Voxel sdfWeightVoxelVals[200000];
 
 void publishOccupiedVoxelsMarker(int & numVoxels){
     visualization_msgs::msg::MarkerArray markerArray;
-    markerArray.markers.resize(1);
-    visualization_msgs::msg::Marker marker;
-    marker.type = visualization_msgs::msg::Marker::POINTS;
-    marker.action = visualization_msgs::msg::Marker::ADD;
-    marker.header.frame_id = "drone_1";
-    marker.ns = "occupied_voxels";
-    marker.id = 0;
-    marker.pose.orientation.w = 1.0;
-    marker.scale.x = .1;
-    marker.scale.y = .1;
-    marker.scale.z = .1;
-    marker.color.a = 1.0; // Don't forget to set the alpha!
-    marker.color.r = 0.0;
-    marker.color.g = 1.0;
-    marker.color.b = 0.0;
+    markerArray.markers.resize(2);
+    visualization_msgs::msg::Marker markerGreen;
+    markerGreen.type = visualization_msgs::msg::Marker::POINTS;
+    markerGreen.action = visualization_msgs::msg::Marker::ADD;
+    markerGreen.header.frame_id = "drone_1";
+    markerGreen.ns = "occupied_voxels";
+    markerGreen.id = 0;
+    markerGreen.pose.orientation.w = 1.0;
+    markerGreen.scale.x = .1;
+    markerGreen.scale.y = .1;
+    markerGreen.scale.z = .1;
+    markerGreen.color.a = 1.0; // Don't forget to set the alpha!
+    markerGreen.color.r = 0.0;
+    markerGreen.color.g = 1.0;
+    markerGreen.color.b = 0.0;
+
+    visualization_msgs::msg::Marker markerRed;
+    markerRed.type = visualization_msgs::msg::Marker::POINTS;
+    markerRed.action = visualization_msgs::msg::Marker::ADD;
+    markerRed.header.frame_id = "drone_1";
+    markerRed.ns = "occupied_voxels";
+    markerRed.id = 1;
+    markerRed.pose.orientation.w = 1.0;
+    markerRed.scale.x = .1;
+    markerRed.scale.y = .1;
+    markerRed.scale.z = .1;
+    markerRed.color.a = 1.0; // Don't forget to set the alpha!
+    markerRed.color.r = 1.0;
+    markerRed.color.g = 0.0;
+    markerRed.color.b = 0.0;
+
     for(int i=0;i<numVoxels;i++){
       Vector3f v = occupiedVoxels[i];
+      Voxel voxel = sdfWeightVoxelVals[i];
       geometry_msgs::msg::Point p;
       //although in ned frame this swaps the points to enu for easier visualization in rviz
       p.x = v(1);
       p.y = v(0);
       p.z = v(2)*-1;
-      marker.points.push_back(p);
+      if(voxel.sdf >= 0){
+        markerGreen.points.push_back(p);
+      }
+      else{
+        markerRed.points.push_back(p);
+      }
     }
 
-    marker.header.stamp = clock_->now();
-    markerArray.markers[0] = marker;
+    markerGreen.header.stamp = clock_->now();
+    markerArray.markers[0] = markerGreen;
+    markerRed.header.stamp = clock_->now();
+    markerArray.markers[1] = markerRed;
     vis_pub->publish(markerArray);
 }
 
@@ -66,7 +91,7 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     printf("Point Cloud Size: %lu\n", temp_cloud->size());
 
     int * occupiedVoxelsIndex = new int(0);
-    tsdfHandler->processPointCloudAndUpdateVoxels(temp_cloud, origin_transformed_h, occupiedVoxels, occupiedVoxelsIndex);
+    tsdfHandler->processPointCloudAndUpdateVoxels(temp_cloud, origin_transformed_h, occupiedVoxels, occupiedVoxelsIndex, sdfWeightVoxelVals);
     printf("Occupied Voxels: %d\n", *occupiedVoxelsIndex);
 
     publishOccupiedVoxelsMarker(*occupiedVoxelsIndex);
@@ -88,11 +113,11 @@ int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
 
-  clock_ = std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME);
-  tsdfHandler = new TSDFHandler();
-  transformer = new Transformer("drone_1/LidarCustom");
-
   auto node = rclcpp::Node::make_shared("my_subscriber");
+
+  clock_ = node->get_clock();
+  tsdfHandler = new TSDFHandler();
+  transformer = new Transformer("drone_1/LidarCustom", clock_);
 
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
     "/airsim_node/drone_1/lidar/LidarCustom", 100, callback
