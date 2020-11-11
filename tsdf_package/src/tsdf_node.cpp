@@ -10,35 +10,28 @@
 #include <tf2_ros/buffer.h>
 #include "std_msgs/msg/string.hpp"
 #include "transformPC.hpp"
-#include "tsdf_handler.cuh"
-#include "pointcloud.cuh"
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
-// #include <geometry_msgs/msg/point_stamped.hpp>
 #include <iostream>
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
-
-// const rclcpp::Clock::SharedPtr clock_;
-// const tf2_ros::Buffer* tfBuffer;
-// const tf2_ros::TransformListener tfListener;
+#include "cuda/tsdf_container.cuh"
+#include "pointcloud.cuh"
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
-extern void pointcloudMain( pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, TsdfHandler * tsdfHandler, Vector3f * occupiedVoxels_h, int * index_h);
-extern void testVoxelBlockTraversal(TsdfHandler * tsdfHandler, Vector3f * occupiedVoxels_h, int * index_h);
+extern void pointcloudMain( pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, TSDFContainer * tsdfContainer, Vector3f * occupiedVoxels_h, int * index_h);
+extern void testVoxelBlockTraversal(TSDFContainer * tsdfContainer, Vector3f * occupiedVoxels_h, int * index_h);
 extern void testVoxelTraversal();
-// void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
 const std::string source_frame = "drone_1/LidarCustom";
 rclcpp::Clock::SharedPtr clock_;
 tf2_ros::Buffer* tfBuffer;
 tf2_ros::TransformListener* tfListener;
-//set to const?
-TsdfHandler * tsdfHandler;
 geometry_msgs::msg::PointStamped point_in;
 Vector3f origin_transformed;
 Vector3f * origin_transformed_h = &origin_transformed;
+Handler * handler;
 
 rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub;
 
@@ -121,7 +114,8 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     // auto start1 = std::chrono::high_resolution_clock::now();
     printf("point cloud size: %lu\n", temp_cloud->size());
     int * occupiedVoxelsIndex = new int(0);
-    pointcloudMain(temp_cloud, origin_transformed_h, tsdfHandler, occupiedVoxels, occupiedVoxelsIndex);
+    handler->processPointCloudAndUpdateVoxels(temp_cloud, origin_transformed_h, occupiedVoxels, occupiedVoxelsIndex);
+    //pointcloudMain(temp_cloud, origin_transformed_h, tsdfHandler, occupiedVoxels, occupiedVoxelsIndex);
     // printf("occupied voxels: %d\n", *occupiedVoxelsIndex);
 
     visualization_msgs::msg::MarkerArray markerArray;
@@ -214,7 +208,7 @@ int main(int argc, char ** argv)
   clock_ = std::make_shared<rclcpp::Clock>(RCL_SYSTEM_TIME);
   tfBuffer = new tf2_ros::Buffer(clock_);
   tfListener = new tf2_ros::TransformListener(*tfBuffer);
-  tsdfHandler = new TsdfHandler();
+  handler = new Handler();
   // testVoxelBlockTraversal(tsdfHandler, occupiedVoxels, occupiedVoxelsIndex);
   //      for(int i=0; i < 3; ++i){
   //   printf("occupied voxel: (%f, %f, %f)\n", occupiedVoxels[i](0), occupiedVoxels[i](1), occupiedVoxels[i](2));
@@ -279,7 +273,7 @@ int main(int argc, char ** argv)
 
   free(tfBuffer);
   free(tfListener);
-  free(tsdfHandler);
+  free(handler);
   
   // //create hash table and everything here which is defined and implemented in tsdf_node.cuh and tsdf.cu. Then pass the table to pointCloudMain where point clouds are handled. Inside the class we hold all variables
 

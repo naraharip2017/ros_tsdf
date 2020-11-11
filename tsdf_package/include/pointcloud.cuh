@@ -2,18 +2,36 @@
 #define _POINTCLOUD_CUH_
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include "tsdf_handler.cuh"
+#include <stdio.h>
+#include <pcl/point_types.h>
+#include <pcl/PCLPointCloud2.h>
+#include <pcl/conversions.h>
+#include <math.h>
+#include <assert.h>
 
-// struct PointCloudVoxelBlocks{
-//     Eigen::Matrix<float, 3, 1>  * blocks;
-//     int pointer;
+#include "cuda/tsdf_container.cuh"
 
-//     __device__ __host__
-//     PointCloudVoxelBlocks(int size){ //don't necesarrily need this can just do a vector3f and 
-//         blocks = new Eigen::Matrix<float, 3, 1>[size];
-//         pointer = 0;
-//     }
-// };
+typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
+__constant__
+const float truncation_distance = 0.1;
+
+__constant__
+const float MAX_WEIGHT = 10000.0;
+
+class Handler{
+public:
+    __host__
+    Handler();
+
+    __host__
+    void processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, Vector3f * occupiedVoxels_h, int * index_h);
+
+    __host__
+    void integrateVoxelBlockPointsIntoHashTable(Vector3f points_h[], int size, HashTable * hashTable_d, BlockHeap * blockHeap_d);
+    
+private:
+    TSDFContainer * tsdfContainer; 
+};
 
 #endif
