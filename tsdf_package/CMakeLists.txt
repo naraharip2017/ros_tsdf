@@ -51,7 +51,6 @@ ament_target_dependencies(tsdf_node
 )
 
 cuda_add_library(${PROJECT_NAME}_cuda SHARED
-  src/cuda/pointcloud.cu
   src/cuda/tsdf_handler.cu
   src/cuda/tsdf_container.cu
   OPTIONS -g -shared -Xcompiler -fPIC -arch=sm_60 -rdc=true #-Xptxas=-v
