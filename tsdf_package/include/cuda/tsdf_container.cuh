@@ -9,12 +9,12 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
-#define VOXEL_PER_BLOCK 2
-#define HASH_ENTRIES_PER_BUCKET 2
-#define NUM_BUCKETS 1000000
+#define VOXEL_PER_BLOCK 2 //param
+#define HASH_ENTRIES_PER_BUCKET 2 //param
+#define NUM_BUCKETS 1000000 //param
 #define HASH_TABLE_SIZE HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS
-#define NUM_HEAP_BLOCKS 200000
-#define VOXEL_SIZE .5
+#define NUM_HEAP_BLOCKS 200000 //param
+#define VOXEL_SIZE .5 //param
 #define HALF_VOXEL_SIZE VOXEL_SIZE / 2
 
 #define PRIME_ONE 73856093
