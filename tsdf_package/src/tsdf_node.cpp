@@ -22,7 +22,7 @@ rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub;
 
 float average1, count = 0.0;
 
-Vector3f occupiedVoxels[1000000];
+Vector3f occupiedVoxels[200000];
 
 void publishOccupiedVoxelsMarker(int & numVoxels){
     visualization_msgs::msg::MarkerArray markerArray;
@@ -98,7 +98,7 @@ int main(int argc, char ** argv)
     "/airsim_node/drone_1/lidar/LidarCustom", 100, callback
   ); 
 
-  vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 100);
+  vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 500);
 
   rclcpp::spin(node);
 
