@@ -45,6 +45,8 @@ public:
     __host__
     void visualize(Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
+    __host__
+    void test();
 private:
     TSDFContainer * tsdfContainer; 
     Vector3f * occupied_voxels_d;

@@ -31,6 +31,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(tsdf_package_msgs REQUIRED)
 
 add_executable(
   tsdf_node src/tsdf_node.cpp
@@ -51,6 +52,7 @@ ament_target_dependencies(tsdf_node
   "tf2"
   "tf2_ros"
   "tf2_geometry_msgs"
+  "tsdf_package_msgs"
 )
 
 CUDA_SELECT_NVCC_ARCH_FLAGS(ARCH_FLAGS Auto)

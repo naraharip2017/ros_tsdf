@@ -2,6 +2,8 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include "tsdf_package_msgs/msg/tsdf.hpp"
+#include "tsdf_package_msgs/msg/voxel.hpp"
 #include "cuda/tsdf_container.cuh"
 #include "cuda/tsdf_handler.cuh"
 #include "transformer.hpp"
@@ -19,44 +21,48 @@ Vector3f origin_transformed;
 Vector3f * origin_transformed_h = &origin_transformed;
 
 rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub;
+rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub;
 
 float average1, count = 0.0;
 
 Vector3f occupiedVoxels[200000];
 Voxel sdfWeightVoxelVals[200000];
 
-void publishOccupiedVoxelsMarker(int & numVoxels){
-    visualization_msgs::msg::MarkerArray markerArray;
-    markerArray.markers.resize(2);
-    visualization_msgs::msg::Marker markerGreen;
-    markerGreen.type = visualization_msgs::msg::Marker::POINTS;
-    markerGreen.action = visualization_msgs::msg::Marker::ADD;
-    markerGreen.header.frame_id = "drone_1";
-    markerGreen.ns = "occupied_voxels";
-    markerGreen.id = 0;
-    markerGreen.pose.orientation.w = 1.0;
-    markerGreen.scale.x = .1;
-    markerGreen.scale.y = .1;
-    markerGreen.scale.z = .1;
-    markerGreen.color.a = 1.0; // Don't forget to set the alpha!
-    markerGreen.color.r = 0.0;
-    markerGreen.color.g = 1.0;
-    markerGreen.color.b = 0.0;
+float publishDistanceSquared = 100;
 
-    visualization_msgs::msg::Marker markerRed;
-    markerRed.type = visualization_msgs::msg::Marker::POINTS;
-    markerRed.action = visualization_msgs::msg::Marker::ADD;
-    markerRed.header.frame_id = "drone_1";
-    markerRed.ns = "occupied_voxels";
+inline bool withinPublishDistance(Vector3f & a, Vector3f & b){
+  Vector3f diff = b - a;
+  float distanceSquared  = pow(diff(0), 2) + pow(diff(1), 2) + pow(diff(2), 2);
+  if(distanceSquared <= publishDistanceSquared){
+    return true;
+  }
+  return false;
+}
+
+void publish(int & numVoxels){ //clean up
+    visualization_msgs::msg::MarkerArray markerArray;
+    markerArray.markers.resize(3);
+    visualization_msgs::msg::Marker markerGreen, markerRed, markerBlue;
+    markerGreen.type = markerRed.type = markerBlue.type = visualization_msgs::msg::Marker::POINTS;
+    markerGreen.action = markerRed.action = markerBlue.action = visualization_msgs::msg::Marker::ADD;
+    markerGreen.header.frame_id = markerRed.header.frame_id = markerBlue.header.frame_id= "drone_1";
+    markerGreen.ns = markerRed.ns = markerBlue.ns = "occupied_voxels";
+    markerGreen.id = 0;
     markerRed.id = 1;
-    markerRed.pose.orientation.w = 1.0;
-    markerRed.scale.x = .1;
-    markerRed.scale.y = .1;
-    markerRed.scale.z = .1;
-    markerRed.color.a = 1.0; // Don't forget to set the alpha!
+    markerBlue.id = 2;
+    markerGreen.pose.orientation.w = markerRed.pose.orientation.w = markerBlue.pose.orientation.w = 1.0;
+    markerGreen.scale.x = markerRed.scale.x = markerBlue.scale.x = .1;
+    markerGreen.scale.y = markerRed.scale.y = markerBlue.scale.y = .1;
+    markerGreen.scale.z = markerRed.scale.z = markerBlue.scale.y = .1;
+    markerGreen.color.a = markerRed.color.a = markerBlue.color.a = 1.0; // Don't forget to set the alpha!
+    markerGreen.color.r = markerBlue.color.r = 0.0;
+    markerRed.color.g = markerBlue.color.g = 0.0;
+    markerGreen.color.b = markerRed.color.b = 0.0;
     markerRed.color.r = 1.0;
-    markerRed.color.g = 0.0;
-    markerRed.color.b = 0.0;
+    markerGreen.color.g = 1.0;
+    markerBlue.color.b = 1.0;
+
+    auto message = tsdf_package_msgs::msg::Tsdf(); 
 
     for(int i=0;i<numVoxels;i++){
       Vector3f v = occupiedVoxels[i];
@@ -66,19 +72,35 @@ void publishOccupiedVoxelsMarker(int & numVoxels){
       p.x = v(1);
       p.y = v(0);
       p.z = v(2)*-1;
-      if(voxel.sdf >= 0){
-        markerGreen.points.push_back(p);
+      if(withinPublishDistance(v, origin_transformed)){
+        markerBlue.points.push_back(p);
+
+        auto msgVoxel = tsdf_package_msgs::msg::Voxel();
+        msgVoxel.sdf = voxel.sdf;
+        msgVoxel.weight = voxel.weight;
+        msgVoxel.x = v(0);
+        msgVoxel.y = v(1);
+        msgVoxel.z = v(2);
+        message.voxels.push_back(msgVoxel);
       }
       else{
-        markerRed.points.push_back(p);
+        if(voxel.sdf >= 0){
+          markerGreen.points.push_back(p);
+        }
+        else{
+          markerRed.points.push_back(p);
+        }
       }
     }
 
-    markerGreen.header.stamp = clock_->now();
+    markerGreen.header.stamp = markerRed.header.stamp = clock_->now();
     markerArray.markers[0] = markerGreen;
-    markerRed.header.stamp = clock_->now();
     markerArray.markers[1] = markerRed;
+    markerArray.markers[2] = markerBlue;
     vis_pub->publish(markerArray);
+
+    message.size = message.voxels.size();
+    tsdf_pub->publish(message);
 }
 
 void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
@@ -94,7 +116,7 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     tsdfHandler->processPointCloudAndUpdateVoxels(temp_cloud, origin_transformed_h, occupiedVoxels, occupiedVoxelsIndex, sdfWeightVoxelVals);
     printf("Occupied Voxels: %d\n", *occupiedVoxelsIndex);
 
-    publishOccupiedVoxelsMarker(*occupiedVoxelsIndex);
+    publish(*occupiedVoxelsIndex);
 
     free(occupiedVoxelsIndex);
 
@@ -118,6 +140,7 @@ int main(int argc, char ** argv)
 
   clock_ = node->get_clock();
   tsdfHandler = new TSDFHandler();
+  // tsdfHandler->test();
   transformer = new Transformer("drone_1/LidarCustom", clock_);
 
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
@@ -125,6 +148,8 @@ int main(int argc, char ** argv)
   ); 
 
   vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 100);
+
+  tsdf_pub = node->create_publisher<tsdf_package_msgs::msg::Tsdf>("tsdf", 10);
 
   rclcpp::spin(node);
 
