@@ -21,7 +21,7 @@ void Transformer::getOriginInPointCloudFrame(const sensor_msgs::msg::PointCloud2
 
     auto stop = std::chrono::high_resolution_clock::now(); 
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); 
-    std::cout << "transform duration: ";
+    std::cout << "Transform Duration: ";
     std::cout << duration.count() << std::endl;
 
     tf2::doTransform(origin_in, point_out, transform);

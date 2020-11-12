@@ -21,6 +21,7 @@ typedef Eigen::Matrix<float, 3, 1> Vector3f;
 #define PRIME_TWO 19349669
 #define PRIME_THREE 83492791
 
+__constant__
 const float VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_BLOCK;
 const float HALF_VOXEL_BLOCK_SIZE = VOXEL_BLOCK_SIZE / 2;
 const float EPSILON = VOXEL_BLOCK_SIZE / 4;
@@ -53,7 +54,7 @@ struct HashEntry{
     __device__ __host__
     HashEntry():position(0,0,0),offset(0),pointer(0){
     }
-    __device__ __host__
+    __device__ __host__ //remove
     HashEntry(Vector3f position, int pointer):offset(0){
         this->position = position;
         this->pointer = pointer;

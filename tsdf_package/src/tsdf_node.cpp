@@ -103,10 +103,11 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     std::cout << "Overall Duration: ";
     std::cout << duration.count() << std::endl;
 
-    std::cout << "Cuda Average Duration: ";
+    std::cout << "Average Duration: ";
     average1 += duration.count();
     count++;
     std::cout << average1/count << std::endl; 
+    std::cout << "---------------------------------------------------------------" << std::endl;
 }
 
 int main(int argc, char ** argv)
@@ -120,10 +121,10 @@ int main(int argc, char ** argv)
   transformer = new Transformer("drone_1/LidarCustom", clock_);
 
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "/airsim_node/drone_1/lidar/LidarCustom", 100, callback
+    "/airsim_node/drone_1/lidar/LidarCustom", 500, callback
   ); 
 
-  vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 500);
+  vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 100);
 
   rclcpp::spin(node);
 

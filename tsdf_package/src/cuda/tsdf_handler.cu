@@ -45,7 +45,7 @@ void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d
   // for(size_t i = 0; i<NUM_HEAP_BLOCKS; ++i){
   //   printf("%d  ", freeBlocks[i]);
   // }
-  printf("\nCurrent Index: %d\n", blockHeap_d->currentIndex);
+  printf("Current Index: %d\n", blockHeap_d->currentIndex);
 }
 
 __device__
@@ -88,22 +88,17 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B, float epsilon){
   return false;
 }
 
- __global__
- void getVoxelBlocksForPoint(pcl::PointXYZ * points_d, Vector3f * pointCloudVoxelBlocks_d, int * pointer_d, Vector3f * origin_transformed_d, int * size_d){
-  int threadIndex = (blockIdx.x*128 + threadIdx.x);
-  if(threadIndex>=*size_d){
-    return;
-  }
-  pcl::PointXYZ point_d = points_d[threadIndex];
-  Vector3f u = *origin_transformed_d;
+__device__
+inline void getTruncationLineEndPoints(pcl::PointXYZ & point_d, Vector3f * origin_transformed_d, Vector3f & truncation_start, Vector3f & truncation_end, Vector3f & u, Vector3f & v){
+  u = *origin_transformed_d;
   Vector3f point_d_vector(point_d.x, point_d.y, point_d.z);
-  Vector3f v = point_d_vector - u; //direction
+  v = point_d_vector - u; //direction
   //equation of line is u+tv
   float vMag = sqrt(pow(v(0), 2) + pow(v(1),2) + pow(v(2), 2));
   Vector3f v_normalized = v / vMag;
-  Vector3f truncation_start = point_d_vector - truncation_distance*v_normalized;
+  truncation_start = point_d_vector - truncation_distance*v_normalized;
   
-  Vector3f truncation_end = point_d_vector + truncation_distance*v_normalized;
+  truncation_end = point_d_vector + truncation_distance*v_normalized;
 
   float distance_tStart_origin = pow(truncation_start(0) - u(0), 2) + pow(truncation_start(1) - u(1),2) + pow(truncation_start(2) - u(2), 2);
   float distance_tEnd_origin = pow(truncation_end(0) - u(0), 2) + pow(truncation_end(1) - u(1),2) + pow(truncation_end(2) - u(2), 2);
@@ -113,239 +108,113 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B, float epsilon){
     truncation_start = truncation_end;
     truncation_end = temp;
   }
+}
 
-  Vector3f truncation_start_block = GetVoxelBlockCenterFromPoint(truncation_start);
-  Vector3f truncation_end_block = GetVoxelBlockCenterFromPoint(truncation_end);
-  float stepX = v(0) > 0 ? VOXEL_BLOCK_SIZE : -1 * VOXEL_BLOCK_SIZE;
-  float stepY = v(1) > 0 ? VOXEL_BLOCK_SIZE : -1 * VOXEL_BLOCK_SIZE;
-  float stepZ = v(2) > 0 ? VOXEL_BLOCK_SIZE : -1 * VOXEL_BLOCK_SIZE;
-  float tMaxX = fabs(v(0) < 0 ? (truncation_start_block(0) - HALF_VOXEL_BLOCK_SIZE - u(0)) / v(0) : (truncation_start_block(0) + HALF_VOXEL_BLOCK_SIZE - u(0)) / v(0));
-  float tMaxY = fabs(v(1) < 0 ? (truncation_start_block(1) - HALF_VOXEL_BLOCK_SIZE - u(1)) / v(1) : (truncation_start_block(1) + HALF_VOXEL_BLOCK_SIZE - u(1)) / v(1));
-  float tMaxZ = fabs(v(2) < 0 ? (truncation_start_block(2) - HALF_VOXEL_BLOCK_SIZE - u(2)) / v(2) : (truncation_start_block(2) + HALF_VOXEL_BLOCK_SIZE - u(2)) / v(2));
-  float tDeltaX = fabs(VOXEL_BLOCK_SIZE / v(0));
-  float tDeltaY = fabs(VOXEL_BLOCK_SIZE / v(1));
-  float tDeltaZ = fabs(VOXEL_BLOCK_SIZE / v(2));
-  Vector3f currentBlock(truncation_start_block(0), truncation_start_block(1), truncation_start_block(2));
+__device__
+inline void traverseVolume(Vector3f & truncation_start_vol, Vector3f & truncation_end_vol, const float & volume_size, Vector3f & u, Vector3f & v, Vector3f * traversed_vols, int * traversed_vols_size){
+  float half_volume_size = volume_size / 2;
+  const float epsilon = volume_size / 4;
+  float stepX = v(0) > 0 ? volume_size : -1 * volume_size;
+  float stepY = v(1) > 0 ? volume_size : -1 * volume_size;
+  float stepZ = v(2) > 0 ? volume_size : -1 * volume_size;
+  float tMaxX = fabs(v(0) < 0 ? (truncation_start_vol(0) - half_volume_size - u(0)) / v(0) : (truncation_start_vol(0) + half_volume_size - u(0)) / v(0));
+  float tMaxY = fabs(v(1) < 0 ? (truncation_start_vol(1) - half_volume_size - u(1)) / v(1) : (truncation_start_vol(1) + half_volume_size - u(1)) / v(1));
+  float tMaxZ = fabs(v(2) < 0 ? (truncation_start_vol(2) - half_volume_size - u(2)) / v(2) : (truncation_start_vol(2) + half_volume_size - u(2)) / v(2));
+  float tDeltaX = fabs(volume_size / v(0));
+  float tDeltaY = fabs(volume_size / v(1));
+  float tDeltaZ = fabs(volume_size / v(2));
+  Vector3f current_vol(truncation_start_vol(0), truncation_start_vol(1), truncation_start_vol(2));
 
-  while(!checkFloatingPointVectorsEqual(currentBlock, truncation_end_block, EPSILON)){
-    int pointCloudVoxelBlocksIndex = atomicAdd(&(*pointer_d), 1);
-    pointCloudVoxelBlocks_d[pointCloudVoxelBlocksIndex] = currentBlock;
+  int insert_index;
+  while(!checkFloatingPointVectorsEqual(current_vol, truncation_end_vol, epsilon)){
+    insert_index = atomicAdd(&(*traversed_vols_size), 1);
+    traversed_vols[insert_index] = current_vol;
     if(tMaxX < tMaxY){
       if(tMaxX < tMaxZ)
       {
-        currentBlock(0) += stepX;
+        current_vol(0) += stepX;
         tMaxX += tDeltaX;
       }
       else if(tMaxX > tMaxZ){
-        currentBlock(2) += stepZ;
+        current_vol(2) += stepZ;
         tMaxZ += tDeltaZ;
       }
       else{
-        currentBlock(0) += stepX;
-        currentBlock(2) += stepZ;
+        current_vol(0) += stepX;
+        current_vol(2) += stepZ;
         tMaxX += tDeltaX;
         tMaxZ += tDeltaZ;
       }
     }
     else if(tMaxX > tMaxY){
       if(tMaxY < tMaxZ){
-        currentBlock(1) += stepY;
+        current_vol(1) += stepY;
         tMaxY += tDeltaY;
       }
       else if(tMaxY > tMaxZ){
-        currentBlock(2) += stepZ;
+        current_vol(2) += stepZ;
         tMaxZ += tDeltaZ;
       }
       else{
-        currentBlock(1) += stepY;
-        currentBlock(2) += stepZ;
+        current_vol(1) += stepY;
+        current_vol(2) += stepZ;
         tMaxY += tDeltaY;
         tMaxZ += tDeltaZ;
       }
     }
     else{
       if(tMaxZ < tMaxX){
-        currentBlock(2) += stepZ;
+        current_vol(2) += stepZ;
         tMaxZ += tDeltaZ;
       }
       else if(tMaxZ > tMaxX){
-        currentBlock(0) += stepX;
-        currentBlock(1) += stepY;
+        current_vol(0) += stepX;
+        current_vol(1) += stepY;
         tMaxX += tDeltaX;
         tMaxY += tDeltaY;
       }
       else{ 
-        currentBlock(0) += stepX;
-        currentBlock(1) += stepY;
-        currentBlock(2) += stepZ;
+        current_vol(0) += stepX;
+        current_vol(1) += stepY;
+        current_vol(2) += stepZ;
         tMaxX += tDeltaX;
         tMaxY += tDeltaY;
         tMaxZ += tDeltaZ;
       }
     } 
   }      
-  
-  int pointCloudVoxelBlocksIndex = atomicAdd(&(*pointer_d), 1);
-  pointCloudVoxelBlocks_d[pointCloudVoxelBlocksIndex] = currentBlock;
-  return;
- }
 
- __global__
-void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d, int * size_d, int * unallocatedPointsCount_d)
-{
-  
-  int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
-  if(threadIndex>=*size_d || (unallocatedPoints_d[threadIndex]==0)){
-    return;
-  }
-  Vector3f point_d = points_d[threadIndex];
-  size_t bucketIndex = retrieveHashIndexFromPoint(point_d);
-  size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
-  HashEntry * hashEntries = hashTable_d->hashEntries;
-  bool blockNotAllocated = true;
-  HashEntry hashEntry;
-  for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-    hashEntry = hashEntries[currentGlobalIndex+i];
-    if(hashEntry.checkIsPositionEqual(point_d)){
-      unallocatedPoints_d[threadIndex] = 0;
-      atomicSub(unallocatedPointsCount_d, 1);
-      blockNotAllocated = false;
-      return;
-    }
-  }
-
-  //set currentGlobalIndex to last position in bucket to check linked list
-  currentGlobalIndex+=HASH_ENTRIES_PER_BUCKET-1;
-
-  //check linked list
-  while(hashEntry.offset!=0){
-    short offset = hashEntry.offset;
-    currentGlobalIndex+=offset;
-    if(currentGlobalIndex>=HASH_TABLE_SIZE){
-      currentGlobalIndex %= HASH_TABLE_SIZE;
-    }
-    hashEntry = hashEntries[currentGlobalIndex];
-    if(hashEntry.checkIsPositionEqual(point_d)){
-      unallocatedPoints_d[threadIndex] = 0;
-      atomicSub(unallocatedPointsCount_d, 1);
-      blockNotAllocated = false;
-      return;
-    }
-  }
-
-  //can have a boolean checking if bucket is completely full and avoid rechecking bucket entries
-
-  size_t insertCurrentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
-
-  //allocate block
-  if(blockNotAllocated){
-    if(!atomicCAS(&hashTable_d->mutex[bucketIndex], 0, 1)){
-        VoxelBlock * allocBlock = new VoxelBlock();
-        bool notInserted = true;
-        for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-          HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
-          if(entry.isFree()){ 
-            int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-            blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-            cudaFree(allocBlock);
-            HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
-            hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
-            cudaFree(allocBlockHashEntry);
-            notInserted = false;
-            unallocatedPoints_d[threadIndex] = 0;
-            atomicSub(unallocatedPointsCount_d, 1);
-            atomicExch(&hashTable_d->mutex[bucketIndex], 0);
-            return;
-          }
-        }
-
-        size_t insertBucketIndex = bucketIndex + 1;
-        if(insertBucketIndex == NUM_BUCKETS){
-          insertBucketIndex = 0;
-        }
-
-        bool haveLinkedListBucketLock = true;
-
-        //check bucket of linked list end if different release hashbucket lock
-        size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
-        if(endLinkedListBucket!=bucketIndex){
-          atomicExch(&hashTable_d->mutex[bucketIndex], 0);
-          haveLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
-        }
-
-        if(haveLinkedListBucketLock){
-                  //find position outside of current bucket
-            while(notInserted){ //grab atomicCAS of linked list before looping for free spot
-              //check offset of head linked list pointer
-              if(!atomicCAS(&hashTable_d->mutex[insertBucketIndex], 0, 1)){
-                insertCurrentGlobalIndex = insertBucketIndex * HASH_ENTRIES_PER_BUCKET;
-                for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
-                  HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
-                  //make this a method like entry.checkFree super unclean currently
-                  if(entry.isFree() ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
-                    //set offset of last linked list node
-                      int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-                      blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-                      HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
-                      size_t insertPos = insertCurrentGlobalIndex + i;
-                      hashEntries[insertPos] = *allocBlockHashEntry;
-                      cudaFree(allocBlock);
-                      cudaFree(allocBlockHashEntry);
-                      if(insertPos > currentGlobalIndex){
-                        hashEntries[currentGlobalIndex].offset = insertPos - currentGlobalIndex;
-                      }
-                      else{
-                        hashEntries[currentGlobalIndex].offset = HASH_TABLE_SIZE - currentGlobalIndex + insertPos;
-                      }
-                      notInserted = false;
-                      unallocatedPoints_d[threadIndex] = 0;
-                      atomicSub(unallocatedPointsCount_d, 1);
-                    
-                    break;
-                  }
-                }
-                atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
-              }
-              insertBucketIndex++;
-              if(insertBucketIndex == NUM_BUCKETS){
-                insertBucketIndex = 0;
-              }
-              if(insertBucketIndex == bucketIndex){
-                // unallocatedPoints_d[threadIndex] = 1;
-                return;
-              }
-              //check if equals hashedbucket then break, only loop through table once then have to return point for next frame
-            }
-            atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
-      }
-      else{
-        // unallocatedPoints_d[threadIndex] = 1;
-        return;
-      }
-
-      //free block here or we have another kernel in parallel reset all mutex
-    }
-    //printf("thread id: %d, mutex: %d\n", threadIdx.x, mutex);
-    //determine which blocks are not inserted
-    else{
-      // unallocatedPoints_d[threadIndex] = 1;
-    }
-  }
-  return;
+  insert_index = atomicAdd(&(*traversed_vols_size), 1);
+  traversed_vols[insert_index] = current_vol;
 }
 
-__device__
-size_t getLocalVoxelIndex(Vector3f diff){
-  diff /= VOXEL_SIZE;
-  return floor(diff(0)) + (floor(diff(1)) * VOXEL_PER_BLOCK) + (floor(diff(2)) * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK);
+__global__
+void getVoxelBlocksForPoint(pcl::PointXYZ * points_d, Vector3f * pointCloudVoxelBlocks_d, int * pointer_d, Vector3f * origin_transformed_d, int * size_d){ //refactor
+  int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
+  if(threadIndex>=*size_d){
+    return;
+  }
+  pcl::PointXYZ point_d = points_d[threadIndex];
+  Vector3f truncation_start;
+  Vector3f truncation_end;
+  Vector3f u;
+  Vector3f v;
+
+  getTruncationLineEndPoints(point_d, origin_transformed_d, truncation_start, truncation_end, u, v);
+
+  Vector3f truncation_start_block = GetVoxelBlockCenterFromPoint(truncation_start);
+  Vector3f truncation_end_block = GetVoxelBlockCenterFromPoint(truncation_end);
+
+  traverseVolume(truncation_start_block, truncation_end_block, VOXEL_BLOCK_SIZE, u, v, pointCloudVoxelBlocks_d, pointer_d);
+  return;
 }
 
 __device__ 
-int getBlockPositionForBlockCoordinates(Vector3f voxelBlockCoordinates, HashTable * hashTable_d){
-  size_t bucketIndex = retrieveHashIndexFromPoint(voxelBlockCoordinates);
-  size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
-  HashEntry * hashEntries = hashTable_d->hashEntries;
+int getBlockPositionForBlockCoordinates(Vector3f & voxelBlockCoordinates, size_t & bucket_index, size_t & currentGlobalIndex, HashEntry * hashEntries){
+
   HashEntry hashEntry;
+
+  //check the hashed bucket for the block
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
     hashEntry = hashEntries[currentGlobalIndex+i];
     if(hashEntry.checkIsPositionEqual(voxelBlockCoordinates)){
@@ -355,7 +224,7 @@ int getBlockPositionForBlockCoordinates(Vector3f voxelBlockCoordinates, HashTabl
 
   currentGlobalIndex+=HASH_ENTRIES_PER_BUCKET-1;
 
-  //check linked list
+  //check the linked list if necessary
   while(hashEntry.offset!=0){
     short offset = hashEntry.offset;
     currentGlobalIndex+=offset;
@@ -367,6 +236,121 @@ int getBlockPositionForBlockCoordinates(Vector3f voxelBlockCoordinates, HashTabl
       return hashEntry.pointer;
     }
   }
+
+  //block not allocated in hashTable
+  return -1;
+}
+
+__device__
+inline bool attemptHashedBucketVoxelBlockCreation(size_t & hashedBucketIndex, BlockHeap * blockHeap_d, Vector3f & point_d, HashEntry * hashEntries){
+  size_t insertCurrentGlobalIndex = hashedBucketIndex * HASH_ENTRIES_PER_BUCKET;
+  for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
+    if(hashEntries[insertCurrentGlobalIndex+i].isFree()){ 
+      int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
+      hashEntries[insertCurrentGlobalIndex+i].position = point_d;
+      hashEntries[insertCurrentGlobalIndex+i].pointer = blockHeapFreeIndex;
+      return true;
+    }
+  }
+  return false;
+} 
+
+__device__
+inline bool attemptLinkedListVoxelBlockCreation(size_t & hashedBucketIndex, BlockHeap * blockHeap_d, HashTable * hashTable_d, size_t & insertBucketIndex, size_t & endLinkedListPointer, Vector3f & point_d, HashEntry * hashEntries){
+  size_t insertCurrentGlobalIndex;
+  while(insertBucketIndex!=hashedBucketIndex){
+    if(!atomicCAS(&hashTable_d->mutex[insertBucketIndex], 0, 1)){
+      insertCurrentGlobalIndex = insertBucketIndex * HASH_ENTRIES_PER_BUCKET;
+      for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
+        if(hashEntries[insertCurrentGlobalIndex+i].isFree() ){ 
+            int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
+            size_t insertPos = insertCurrentGlobalIndex + i;
+            hashEntries[insertPos].position = point_d;
+            hashEntries[insertPos].pointer = blockHeapFreeIndex;
+            if(insertPos > endLinkedListPointer){
+              hashEntries[endLinkedListPointer].offset = insertPos - endLinkedListPointer;
+            }
+            else{
+              hashEntries[endLinkedListPointer].offset = HASH_TABLE_SIZE - endLinkedListPointer + insertPos;
+            }
+            return true;
+        }
+      }
+      atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
+    }
+    insertBucketIndex++;
+    if(insertBucketIndex == NUM_BUCKETS){
+      insertBucketIndex = 0;
+    }
+  }
+  return false;
+}
+__global__
+void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d, int * size_d, int * unallocatedPointsCount_d) //clean up
+{
+  int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
+  if(threadIndex>=*size_d || (unallocatedPoints_d[threadIndex]==0)){
+    return;
+  }
+  Vector3f point_d = points_d[threadIndex];
+
+  size_t hashedBucketIndex = retrieveHashIndexFromPoint(point_d);
+  size_t currentGlobalIndex = hashedBucketIndex * HASH_ENTRIES_PER_BUCKET;
+  HashEntry * hashEntries = hashTable_d->hashEntries;
+
+  int block_position = getBlockPositionForBlockCoordinates(point_d, hashedBucketIndex, currentGlobalIndex, hashEntries);
+
+  //block is already allocated
+  if(block_position!=-1){
+    unallocatedPoints_d[threadIndex] = 0;
+    atomicSub(unallocatedPointsCount_d, 1);
+    return;
+  }
+
+  //attempt to get lock for hashed bucket
+  if(!atomicCAS(&hashTable_d->mutex[hashedBucketIndex], 0, 1)){
+
+    if(attemptHashedBucketVoxelBlockCreation(hashedBucketIndex, blockHeap_d, point_d, hashEntries)) {
+      unallocatedPoints_d[threadIndex] = 0;
+      atomicSub(unallocatedPointsCount_d, 1);
+      atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
+      return;
+    }
+
+    size_t insertBucketIndex = hashedBucketIndex + 1;
+    if(insertBucketIndex == NUM_BUCKETS){
+      insertBucketIndex = 0;
+    }
+
+    //current global index will point to end of linked list which includes hashed bucket if no linked list
+    size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
+
+    bool haveEndLinkedListBucketLock = true;
+
+    if(endLinkedListBucket!=hashedBucketIndex){
+      atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
+      haveEndLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
+    }
+
+    if(haveEndLinkedListBucketLock){
+      if(attemptLinkedListVoxelBlockCreation(hashedBucketIndex, blockHeap_d, hashTable_d, insertBucketIndex, currentGlobalIndex, point_d, hashEntries)){
+        unallocatedPoints_d[threadIndex] = 0;
+        atomicSub(unallocatedPointsCount_d, 1); 
+        atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
+        atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
+      }
+      else{
+        atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
+      }
+      return;
+    }
+  }
+}
+
+__device__
+size_t getLocalVoxelIndex(Vector3f diff){
+  diff /= VOXEL_SIZE;
+  return floor(diff(0)) + (floor(diff(1)) * VOXEL_PER_BLOCK) + (floor(diff(2)) * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK);
 }
 
 __device__
@@ -395,12 +379,20 @@ return magnitudeLidarVoxelDiff;
 }
 
 __global__
-void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * point_d, Vector3f * origin){
-  int threadIndex = threadIdx.x;
+void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * point_d, Vector3f * origin, int * size){
+  int threadIndex = blockIdx.x*threadsPerCudaBlock + threadIdx.x;
+  if(threadIndex >= * size){
+    return;
+  }
   Vector3f voxelCoordinates = voxels[threadIndex];
   Vector3f voxelBlockCoordinates = GetVoxelBlockCenterFromPoint(voxelCoordinates);
+
+  size_t bucketIndex = retrieveHashIndexFromPoint(voxelBlockCoordinates);
+  size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
+  HashEntry * hashEntries = hashTable_d->hashEntries;
+
   //make a global vector with half voxel block size values
-  int voxelBlockHeapPosition = getBlockPositionForBlockCoordinates(voxelBlockCoordinates, hashTable_d);
+  int voxelBlockHeapPosition = getBlockPositionForBlockCoordinates(voxelBlockCoordinates, bucketIndex, currentGlobalIndex, hashEntries);
   Vector3f voxelBlockBottomLeftCoordinates;
   voxelBlockBottomLeftCoordinates(0) = voxelBlockCoordinates(0)-HALF_VOXEL_BLOCK_SIZE;
   voxelBlockBottomLeftCoordinates(1) = voxelBlockCoordinates(1)-HALF_VOXEL_BLOCK_SIZE;
@@ -436,120 +428,42 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
 
 __global__
 void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, int * size_d){
- int threadIndex = (blockIdx.x*128 + threadIdx.x);
- if(threadIndex>=*size_d){
+  int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
+  if(threadIndex>=*size_d){
   return;
-}
- pcl::PointXYZ point_d = points_d[threadIndex];
- Vector3f u = *origin_transformed_d;
- Vector3f point_d_vector(point_d.x, point_d.y, point_d.z);
- Vector3f v = point_d_vector - u; //direction
- //equation of line is u+tv
- float vMag = sqrt(pow(v(0), 2) + pow(v(1),2) + pow(v(2), 2));
- Vector3f v_normalized = v / vMag;
- Vector3f truncation_start = point_d_vector - truncation_distance*v_normalized;
- 
- Vector3f truncation_end = point_d_vector + truncation_distance*v_normalized;
-
- float distance_tStart_origin = pow(truncation_start(0) - u(0), 2) + pow(truncation_start(1) - u(1),2) + pow(truncation_start(2) - u(2), 2);
- float distance_tEnd_origin = pow(truncation_end(0) - u(0), 2) + pow(truncation_end(1) - u(1),2) + pow(truncation_end(2) - u(2), 2);
-
- if(distance_tEnd_origin < distance_tStart_origin){
-   Vector3f temp = truncation_start;
-   truncation_start = truncation_end;
-   truncation_end = temp;
- }
-
- Vector3f truncation_start_voxel = GetVoxelCenterFromPoint(truncation_start);
- Vector3f truncation_end_voxel = GetVoxelCenterFromPoint(truncation_end);
- float stepX = v(0) > 0 ? VOXEL_SIZE : -1 * VOXEL_SIZE;
- float stepY = v(1) > 0 ? VOXEL_SIZE : -1 * VOXEL_SIZE;
- float stepZ = v(2) > 0 ? VOXEL_SIZE : -1 * VOXEL_SIZE;
- float tMaxX = fabs(v(0) < 0 ? (truncation_start_voxel(0) - HALF_VOXEL_SIZE - u(0)) / v(0) : (truncation_start_voxel(0) + HALF_VOXEL_SIZE - u(0)) / v(0));
- float tMaxY = fabs(v(1) < 0 ? (truncation_start_voxel(1) - HALF_VOXEL_SIZE - u(1)) / v(1) : (truncation_start_voxel(1) + HALF_VOXEL_SIZE - u(1)) / v(1));
- float tMaxZ = fabs(v(2) < 0 ? (truncation_start_voxel(2) - HALF_VOXEL_SIZE - u(2)) / v(2) : (truncation_start_voxel(2) + HALF_VOXEL_SIZE - u(2)) / v(2));
- float tDeltaX = fabs(VOXEL_SIZE / v(0));
- float tDeltaY = fabs(VOXEL_SIZE / v(1));
- float tDeltaZ = fabs(VOXEL_SIZE / v(2));
- Vector3f currentBlock(truncation_start_voxel(0), truncation_start_voxel(1), truncation_start_voxel(2));
-
- //overkill - how big should this be?
- Vector3f * voxels = new Vector3f[200]; //set in terms of truncation distance and voxel size
- int size = 0;
- while(!checkFloatingPointVectorsEqual(currentBlock, truncation_end_voxel, VOXEL_EPSILON)){
-   voxels[size] = currentBlock;
-   size++;
-  if(tMaxX < tMaxY){
-    if(tMaxX < tMaxZ)
-    {
-      currentBlock(0) += stepX;
-      tMaxX += tDeltaX;
-    }
-    else if(tMaxX > tMaxZ){
-      currentBlock(2) += stepZ;
-      tMaxZ += tDeltaZ;
-    }
-    else{
-      currentBlock(0) += stepX;
-      currentBlock(2) += stepZ;
-      tMaxX += tDeltaX;
-      tMaxZ += tDeltaZ;
-    }
   }
-  else if(tMaxX > tMaxY){
-    if(tMaxY < tMaxZ){
-      currentBlock(1) += stepY;
-      tMaxY += tDeltaY;
-    }
-    else if(tMaxY > tMaxZ){
-      currentBlock(2) += stepZ;
-      tMaxZ += tDeltaZ;
-    }
-    else{
-      currentBlock(1) += stepY;
-      currentBlock(2) += stepZ;
-      tMaxY += tDeltaY;
-      tMaxZ += tDeltaZ;
-    }
-  }
-  else{
-    if(tMaxZ < tMaxX){
-      currentBlock(2) += stepZ;
-      tMaxZ += tDeltaZ;
-    }
-    else if(tMaxZ > tMaxX){
-      currentBlock(0) += stepX;
-      currentBlock(1) += stepY;
-      tMaxX += tDeltaX;
-      tMaxY += tDeltaY;
-    }
-    else{
-      currentBlock(0) += stepX;
-      currentBlock(1) += stepY;
-      currentBlock(2) += stepZ;
-      tMaxX += tDeltaX;
-      tMaxY += tDeltaY;
-      tMaxZ += tDeltaZ;
-    }
-  }   
- }   
+  pcl::PointXYZ point_d = points_d[threadIndex];
+  Vector3f truncation_start;
+  Vector3f truncation_end;
+  Vector3f u;
+  Vector3f v;
 
- voxels[size] = currentBlock;
- size++;
+  getTruncationLineEndPoints(point_d, origin_transformed_d, truncation_start, truncation_end, u, v);
 
- Vector3f * lidarPoint = new Vector3f(point_d.x, point_d.y, point_d.z);
- //update to check if size is greater than threads per block
- updateVoxels<<<1, size>>>(voxels, hashTable_d, blockHeap_d, lidarPoint, origin_transformed_d);
- cdpErrchk(cudaPeekAtLastError());
- cudaDeviceSynchronize();
- cudaFree(lidarPoint);
+  Vector3f truncation_start_voxel = GetVoxelCenterFromPoint(truncation_start);
+  Vector3f truncation_end_voxel = GetVoxelCenterFromPoint(truncation_end);
+
+  Vector3f * voxels = new Vector3f[200]; //set in terms of truncation distance and voxel size
+  int * size = new int(0);
+
+  traverseVolume(truncation_start_voxel, truncation_end_voxel, VOXEL_SIZE, u, v, voxels, size);
+
+  Vector3f * lidarPoint = new Vector3f(point_d.x, point_d.y, point_d.z);
+
+  int numCudaBlocks = *size/threadsPerCudaBlock + 1;
+  updateVoxels<<<numCudaBlocks, threadsPerCudaBlock>>>(voxels, hashTable_d, blockHeap_d, lidarPoint, origin_transformed_d, size);
+  cdpErrchk(cudaPeekAtLastError());
+  cudaDeviceSynchronize();
+
+  cudaFree(lidarPoint);
   cudaFree(voxels);
+  cudaFree(size);
   return;
 }
 
 __global__
 void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d, Vector3f * position, VoxelBlock * block){
-  int threadIndex = blockIdx.x*128 + threadIdx.x;
+  int threadIndex = blockIdx.x*threadsPerCudaBlock + threadIdx.x;
   if(threadIndex >= VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK){
     return;
   }
@@ -577,7 +491,7 @@ void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * s
 
 __global__
 void visualizeOccupiedVoxels(HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d){
-  int threadIndex = blockIdx.x*128 +threadIdx.x;
+  int threadIndex = blockIdx.x*threadsPerCudaBlock +threadIdx.x;
   if(threadIndex >= HASH_TABLE_SIZE) return;
   HashEntry hashEntry = hashTable_d->hashEntries[threadIndex];
   if(hashEntry.isFree()){
@@ -590,8 +504,8 @@ void visualizeOccupiedVoxels(HashTable * hashTable_d, BlockHeap * blockHeap_d, V
 
   VoxelBlock * block = &(blockHeap_d->blocks[pointer]);
   int size = VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK;
-  int numBlocks = size/128 + 1;
-  processOccupiedVoxelBlock<<<numBlocks,128>>>(occupiedVoxels, index, sdfWeightVoxelVals_d, position, block);
+  int numBlocks = size/threadsPerCudaBlock + 1;
+  processOccupiedVoxelBlock<<<numBlocks,threadsPerCudaBlock>>>(occupiedVoxels, index, sdfWeightVoxelVals_d, position, block);
   cdpErrchk(cudaPeekAtLastError());
   cudaFree(position);
 }
