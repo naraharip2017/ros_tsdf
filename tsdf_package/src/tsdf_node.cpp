@@ -137,7 +137,7 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     std::cout << "Average Duration: ";
     average += duration.count();
     count++;
-    std::cout << average1/count << std::endl; 
+    std::cout << average/count << std::endl; 
     std::cout << "---------------------------------------------------------------" << std::endl;
 }
 
@@ -149,6 +149,7 @@ int main(int argc, char ** argv)
 
   clock_ = node->get_clock();
   tsdfHandler = new TSDFHandler();
+  //source frame set to lidar frame
   transformer = new Transformer("drone_1/LidarCustom", clock_);
 
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(

@@ -22,6 +22,7 @@ private:
     tf2_ros::Buffer* tf_buffer;
     tf2_ros::TransformListener* tf_listener;
     geometry_msgs::msg::PointStamped origin_in;
+    //frame of lidar
     std::string source_frame;
 };
 

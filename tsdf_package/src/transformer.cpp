@@ -6,6 +6,9 @@ Transformer::Transformer(std::string source_frame_, rclcpp::Clock::SharedPtr clo
     source_frame = source_frame_;
 }
 
+/*
+* Method attempts to converts origin of lidar frame to point cloud frame
+*/
 void Transformer::getOriginInPointCloudFrame(const sensor_msgs::msg::PointCloud2 & in, Vector3f & origin_transformed){
   geometry_msgs::msg::TransformStamped transform;
   geometry_msgs::msg::PointStamped point_out;
@@ -37,6 +40,9 @@ void Transformer::getOriginInPointCloudFrame(const sensor_msgs::msg::PointCloud2
   }
 }
 
+/*
+* Method converts pointcloud2 to pointcloudXYZ
+*/
 void Transformer::convertPointCloud2ToPointCloudXYZ(sensor_msgs::msg::PointCloud2::SharedPtr msg, pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud){
     pcl::PCLPointCloud2 pcl_pc2;
     pcl_conversions::toPCL(*msg,pcl_pc2);

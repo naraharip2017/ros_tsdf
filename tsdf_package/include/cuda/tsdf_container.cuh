@@ -37,8 +37,7 @@ struct Voxel{
 
 struct VoxelBlock{
     Voxel voxels[VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK];
-    int mutex[VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK];
-    //int mutex[VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK]; //change to bool
+    int mutex[VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK]; //change to bool
     __device__ __host__
     VoxelBlock(){
         for(int i=0;i<VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK; ++i){
@@ -54,7 +53,7 @@ struct HashEntry{
     __device__ __host__
     HashEntry():position(0,0,0),offset(0),pointer(0){
     }
-    __device__ __host__ //remove
+    __device__ __host__ 
     HashEntry(Vector3f position, int pointer):offset(0){
         this->position = position;
         this->pointer = pointer;
