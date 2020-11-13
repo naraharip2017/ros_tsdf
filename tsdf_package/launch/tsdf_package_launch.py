@@ -6,7 +6,6 @@ def generate_launch_description():
         Node(
             package='tsdf_package',
             node_executable='tsdf_node',
-            node_name='tsdf_node',
-            prefix ='valgrind'
+            node_name='tsdf_node'
         )
     ])
