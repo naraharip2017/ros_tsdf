@@ -332,8 +332,6 @@ inline bool attemptLinkedListVoxelBlockCreation(size_t & hashedBucketIndex, Bloc
             else{
               hashEntries[endLinkedListPointer].offset = HASH_TABLE_SIZE - endLinkedListPointer + insertPos;
             }
-            //free the insertBucket
-            atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
             return true;
         }
       }
@@ -420,9 +418,14 @@ void allocateVoxelBlocks(Vector3f * voxelBlocks_d, HashTable * hashTable_d, Bloc
         unallocatedPoints_d[threadIndex] = 0;
         //subtract 1 from count of unallocated blocks
         atomicSub(unallocatedPointsCount_d, 1); 
+        //free the lock of the end of linked list bucket and insert bucket
+        atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
+        atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
       }
-      //free the lock of the end of linked list bucket
-      atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
+      else{
+        //free the lock of the end of linked list bucket
+        atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
+      }
       return;
     }
   }
@@ -567,10 +570,23 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
 }
 
 /*
+* determines if voxel is within publishing distance of drone
+*/
+__device__
+inline bool withinVisualizationDistance(Vector3f & a, Vector3f & b){
+  Vector3f diff = b - a;
+  float distanceSquared  = pow(diff(0), 2) + pow(diff(1), 2) + pow(diff(2), 2);
+  if(distanceSquared <= VISUALIZE_DISTANCE_SQUARED){
+    return true;
+  }
+  return false;
+}
+
+/*
 * Get voxels that are occupied in a voxel block
 */
 __global__
-void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d, Vector3f * position, VoxelBlock * block){
+void processOccupiedVoxelBlock(Vector3f * origin_transformed_d, Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d, Vector3f * position, VoxelBlock * block){
   int threadIndex = blockIdx.x*threadsPerCudaBlock + threadIdx.x;
   if(threadIndex >= VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK){
     return;
@@ -592,13 +608,14 @@ void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * s
     float yCoord = y * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(1);
     float zCoord = z * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(2);
   
-    //add voxel to list of occupied voxel and its position
     Vector3f v(xCoord, yCoord, zCoord);
-    //check distance here between lidar origin
-    int occupiedVoxelIndex = atomicAdd(&(*index), 1);
-    if(occupiedVoxelIndex<OCCUPIED_VOXELS_SIZE){
-      occupiedVoxels[occupiedVoxelIndex] = v;
-      sdfWeightVoxelVals_d[occupiedVoxelIndex] = voxel;
+    //if within publish distance add voxel to list of occupied voxel and its position
+    if(withinVisualizationDistance(v, *origin_transformed_d)){
+      int occupiedVoxelIndex = atomicAdd(&(*index), 1);
+      if(occupiedVoxelIndex<OCCUPIED_VOXELS_SIZE){
+        occupiedVoxels[occupiedVoxelIndex] = v;
+        sdfWeightVoxelVals_d[occupiedVoxelIndex] = voxel;
+      }
     }
   }
 }
@@ -607,7 +624,7 @@ void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * s
 * check hashtable in parallel if there is an allocated block at the thread index and if so process the block to retrieve occupied voxels
 */
 __global__
-void visualizeOccupiedVoxels(HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d){
+void visualizeOccupiedVoxels(Vector3f * origin_transformed_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d){
   int threadIndex = blockIdx.x*threadsPerCudaBlock +threadIdx.x;
   if(threadIndex >= HASH_TABLE_SIZE) return;
   HashEntry hashEntry = hashTable_d->hashEntries[threadIndex];
@@ -622,7 +639,7 @@ void visualizeOccupiedVoxels(HashTable * hashTable_d, BlockHeap * blockHeap_d, V
   VoxelBlock * block = &(blockHeap_d->blocks[pointer]);
   int size = VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK;
   int numBlocks = size/threadsPerCudaBlock + 1;
-  processOccupiedVoxelBlock<<<numBlocks,threadsPerCudaBlock>>>(occupiedVoxels, index, sdfWeightVoxelVals_d, bottomLeftBlockPos, block);
+  processOccupiedVoxelBlock<<<numBlocks,threadsPerCudaBlock>>>(origin_transformed_d, occupiedVoxels, index, sdfWeightVoxelVals_d, bottomLeftBlockPos, block);
   cdpErrchk(cudaPeekAtLastError());
   cudaFree(bottomLeftBlockPos);
 }
@@ -661,7 +678,7 @@ void TSDFHandler::processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ
 
   allocateVoxelBlocksAndUpdateVoxels(points_d, origin_transformed_d, pointcloud_size_d, pointcloud_size, hash_table_d, block_heap_d);
 
-  visualize(occupied_voxels_h, occupied_voxels_index, sdfWeightVoxelVals_h, hash_table_d, block_heap_d);
+  visualize(origin_transformed_d, occupied_voxels_h, occupied_voxels_index, sdfWeightVoxelVals_h, hash_table_d, block_heap_d);
 
   cudaFree(pointcloud_size_d);
   cudaFree(points_d);
@@ -800,7 +817,7 @@ void TSDFHandler::updateVoxels(int & num_cuda_blocks, pcl::PointXYZ * points_d, 
 /*
 * get occupied voxels for visualization and publishing 
 */
-void TSDFHandler::visualize(Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d){
+void TSDFHandler::visualize(Vector3f * origin_transformed_d, Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d){
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
@@ -818,7 +835,7 @@ void TSDFHandler::visualize(Vector3f * occupied_voxels_h, int * occupied_voxels_
   cudaMemcpy(sdfWeightVoxelVals_d, sdfWeightVoxelVals_h, sizeof(*sdfWeightVoxelVals_h)*occupiedVoxelsSize, cudaMemcpyHostToDevice);
 
   int numCudaBlocks = HASH_TABLE_SIZE / threadsPerCudaBlock + 1;
-  visualizeOccupiedVoxels<<<numCudaBlocks,threadsPerCudaBlock>>>(hash_table_d, block_heap_d, occupied_voxels_d, occupied_voxels_index_d, sdfWeightVoxelVals_d);
+  visualizeOccupiedVoxels<<<numCudaBlocks,threadsPerCudaBlock>>>(origin_transformed_d, hash_table_d, block_heap_d, occupied_voxels_d, occupied_voxels_index_d, sdfWeightVoxelVals_d);
   gpuErrchk( cudaPeekAtLastError() );
   cudaDeviceSynchronize();
 

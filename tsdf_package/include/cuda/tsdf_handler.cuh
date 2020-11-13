@@ -22,6 +22,9 @@ const float MAX_WEIGHT = 10000.0;
 __constant__
 const int OCCUPIED_VOXELS_SIZE = 200000;
 
+__constant__
+const float VISUALIZE_DISTANCE_SQUARED = 250000;
+
 class TSDFHandler{
 public:
     __host__
@@ -46,7 +49,7 @@ public:
     void updateVoxels(int & num_cuda_blocks, pcl::PointXYZ * points_d, Vector3f * origin_transformed_d, int * pointcloud_size_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
     __host__
-    void visualize(Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
+    void visualize(Vector3f * origin_transformed_d, Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
 private:
     TSDFContainer * tsdfContainer; 
