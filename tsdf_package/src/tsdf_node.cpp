@@ -10,26 +10,29 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
-extern void testVoxelBlockTraversal(TSDFContainer * tsdfContainer, Vector3f * occupiedVoxels_h, int * index_h);
-extern void testVoxelTraversal();
-
 rclcpp::Clock::SharedPtr clock_;
+
 TSDFHandler * tsdfHandler;
 Transformer * transformer;
 
+//keep track of origin positin transformed from lidar to world frame
 Vector3f origin_transformed;
 Vector3f * origin_transformed_h = &origin_transformed;
 
 rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub;
 rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub;
 
-float average1, count = 0.0;
+//keep track of average run time
+float average, count = 0.0;
 
+//arrays to hold occupied voxel data
 Vector3f occupiedVoxels[OCCUPIED_VOXELS_SIZE];
 Voxel sdfWeightVoxelVals[OCCUPIED_VOXELS_SIZE];
 
+//distance squared of publishing distance around drone
 float publishDistanceSquared = 100;
 
+//determines if voxel is within publishing distance of drone - move this logic to tsdf handler
 inline bool withinPublishDistance(Vector3f & a, Vector3f & b){
   Vector3f diff = b - a;
   float distanceSquared  = pow(diff(0), 2) + pow(diff(1), 2) + pow(diff(2), 2);
@@ -39,7 +42,8 @@ inline bool withinPublishDistance(Vector3f & a, Vector3f & b){
   return false;
 }
 
-void publish(int & numVoxels){ //clean up
+//publishes visualization and tsdf topic
+void publish(int & numVoxels){ 
     visualization_msgs::msg::MarkerArray markerArray;
     markerArray.markers.resize(3);
     visualization_msgs::msg::Marker markerGreen, markerRed, markerBlue;
@@ -103,6 +107,7 @@ void publish(int & numVoxels){ //clean up
     tsdf_pub->publish(message);
 }
 
+//callback for point cloud subscriber
 void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
     auto start = std::chrono::high_resolution_clock::now();
@@ -116,6 +121,7 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     tsdfHandler->processPointCloudAndUpdateVoxels(temp_cloud, origin_transformed_h, occupiedVoxels, occupiedVoxelsIndex, sdfWeightVoxelVals);
     printf("Occupied Voxels: %d\n", *occupiedVoxelsIndex);
 
+    //checks if occupied voxels count is larger than the amount to publish
     if(*occupiedVoxelsIndex > OCCUPIED_VOXELS_SIZE){
       *occupiedVoxelsIndex = OCCUPIED_VOXELS_SIZE;
     }
@@ -129,7 +135,7 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     std::cout << duration.count() << std::endl;
 
     std::cout << "Average Duration: ";
-    average1 += duration.count();
+    average += duration.count();
     count++;
     std::cout << average1/count << std::endl; 
     std::cout << "---------------------------------------------------------------" << std::endl;
@@ -143,7 +149,6 @@ int main(int argc, char ** argv)
 
   clock_ = node->get_clock();
   tsdfHandler = new TSDFHandler();
-  // tsdfHandler->test();
   transformer = new Transformer("drone_1/LidarCustom", clock_);
 
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
