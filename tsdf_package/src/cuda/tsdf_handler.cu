@@ -248,8 +248,12 @@ inline bool attemptHashedBucketVoxelBlockCreation(size_t & hashedBucketIndex, Bl
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
     if(hashEntries[insertCurrentGlobalIndex+i].isFree()){ 
       int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-      hashEntries[insertCurrentGlobalIndex+i].position = point_d;
-      hashEntries[insertCurrentGlobalIndex+i].pointer = blockHeapFreeIndex;
+      VoxelBlock * allocBlock = new VoxelBlock();
+      HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
+      blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
+      hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
+      cudaFree(allocBlock);
+      cudaFree(allocBlockHashEntry);
       return true;
     }
   }
@@ -265,9 +269,13 @@ inline bool attemptLinkedListVoxelBlockCreation(size_t & hashedBucketIndex, Bloc
       for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
         if(hashEntries[insertCurrentGlobalIndex+i].isFree() ){ 
             int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
+            VoxelBlock * allocBlock = new VoxelBlock();
+            HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
+            blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
             size_t insertPos = insertCurrentGlobalIndex + i;
-            hashEntries[insertPos].position = point_d;
-            hashEntries[insertPos].pointer = blockHeapFreeIndex;
+            hashEntries[insertPos] = *allocBlockHashEntry;
+            cudaFree(allocBlock);
+            cudaFree(allocBlockHashEntry);
             if(insertPos > endLinkedListPointer){
               hashEntries[endLinkedListPointer].offset = insertPos - endLinkedListPointer;
             }
@@ -286,82 +294,19 @@ inline bool attemptLinkedListVoxelBlockCreation(size_t & hashedBucketIndex, Bloc
   }
   return false;
 }
-// __global__
-// void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d, int * size_d, int * unallocatedPointsCount_d) //clean up
-// {
-//   int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
-//   if(threadIndex>=*size_d || (unallocatedPoints_d[threadIndex]==0)){
-//     return;
-//   }
-//   Vector3f point_d = points_d[threadIndex];
-
-//   size_t hashedBucketIndex = retrieveHashIndexFromPoint(point_d);
-//   size_t currentGlobalIndex = hashedBucketIndex * HASH_ENTRIES_PER_BUCKET;
-//   HashEntry * hashEntries = hashTable_d->hashEntries;
-
-//   int block_position = getBlockPositionForBlockCoordinates(point_d, hashedBucketIndex, currentGlobalIndex, hashEntries);
-
-//   //block is already allocated
-//   if(block_position!=-1){
-//     unallocatedPoints_d[threadIndex] = 0;
-//     atomicSub(unallocatedPointsCount_d, 1);
-//     return;
-//   }
-
-//   //attempt to get lock for hashed bucket
-//   if(!atomicCAS(&hashTable_d->mutex[hashedBucketIndex], 0, 1)){
-
-//     if(attemptHashedBucketVoxelBlockCreation(hashedBucketIndex, blockHeap_d, point_d, hashEntries)) {
-//       unallocatedPoints_d[threadIndex] = 0;
-//       atomicSub(unallocatedPointsCount_d, 1);
-//       atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
-//       return;
-//     }
-
-//     size_t insertBucketIndex = hashedBucketIndex + 1;
-//     if(insertBucketIndex == NUM_BUCKETS){
-//       insertBucketIndex = 0;
-//     }
-
-//     //current global index will point to end of linked list which includes hashed bucket if no linked list
-//     size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
-
-//     bool haveEndLinkedListBucketLock = true;
-
-//     if(endLinkedListBucket!=hashedBucketIndex){
-//       atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
-//       haveEndLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
-//     }
-
-//     if(haveEndLinkedListBucketLock){
-//       if(attemptLinkedListVoxelBlockCreation(hashedBucketIndex, blockHeap_d, hashTable_d, insertBucketIndex, currentGlobalIndex, point_d, hashEntries)){
-//         unallocatedPoints_d[threadIndex] = 0;
-//         atomicSub(unallocatedPointsCount_d, 1); 
-//         atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
-//         atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
-//       }
-//       else{
-//         atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
-//       }
-//       return;
-//     }
-//   }
-// }
-
 __global__
-void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d, int * size_d, int * unallocatedPointsCount_d)
+void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d, int * size_d, int * unallocatedPointsCount_d) //clean up
 {
-  
   int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
   if(threadIndex>=*size_d || (unallocatedPoints_d[threadIndex]==0)){
     return;
   }
   Vector3f point_d = points_d[threadIndex];
+
   size_t hashedBucketIndex = retrieveHashIndexFromPoint(point_d);
   size_t currentGlobalIndex = hashedBucketIndex * HASH_ENTRIES_PER_BUCKET;
   HashEntry * hashEntries = hashTable_d->hashEntries;
-  bool blockNotAllocated = true;
-  
+
   int block_position = getBlockPositionForBlockCoordinates(point_d, hashedBucketIndex, currentGlobalIndex, hashEntries);
 
   //block is already allocated
@@ -371,105 +316,44 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
     return;
   }
 
-  //can have a boolean checking if bucket is completely full and avoid rechecking bucket entries
+  //attempt to get lock for hashed bucket
+  if(!atomicCAS(&hashTable_d->mutex[hashedBucketIndex], 0, 1)){
 
-  size_t insertCurrentGlobalIndex = hashedBucketIndex * HASH_ENTRIES_PER_BUCKET;
+    if(attemptHashedBucketVoxelBlockCreation(hashedBucketIndex, blockHeap_d, point_d, hashEntries)) {
+      unallocatedPoints_d[threadIndex] = 0;
+      atomicSub(unallocatedPointsCount_d, 1);
+      atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
+      return;
+    }
 
-  //allocate block
-  if(blockNotAllocated){
-    if(!atomicCAS(&hashTable_d->mutex[hashedBucketIndex], 0, 1)){
-        VoxelBlock * allocBlock = new VoxelBlock();
-        bool notInserted = true;
-        for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-          HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
-          if(entry.isFree()){ 
-            int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-            blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-            cudaFree(allocBlock);
-            HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
-            hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
-            cudaFree(allocBlockHashEntry);
-            notInserted = false;
-            unallocatedPoints_d[threadIndex] = 0;
-            atomicSub(unallocatedPointsCount_d, 1);
-            atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
-            return;
-          }
-        }
+    size_t insertBucketIndex = hashedBucketIndex + 1;
+    if(insertBucketIndex == NUM_BUCKETS){
+      insertBucketIndex = 0;
+    }
 
-        size_t insertBucketIndex = hashedBucketIndex + 1;
-        if(insertBucketIndex == NUM_BUCKETS){
-          insertBucketIndex = 0;
-        }
+    //current global index will point to end of linked list which includes hashed bucket if no linked list
+    size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
 
-        bool haveLinkedListBucketLock = true;
+    bool haveEndLinkedListBucketLock = true;
 
-        //check bucket of linked list end if different release hashbucket lock
-        size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
-        if(endLinkedListBucket!=hashedBucketIndex){
-          atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
-          haveLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
-        }
+    if(endLinkedListBucket!=hashedBucketIndex){
+      atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
+      haveEndLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
+    }
 
-        if(haveLinkedListBucketLock){
-                  //find position outside of current bucket
-            while(notInserted){ //grab atomicCAS of linked list before looping for free spot
-              //check offset of head linked list pointer
-              if(!atomicCAS(&hashTable_d->mutex[insertBucketIndex], 0, 1)){
-                insertCurrentGlobalIndex = insertBucketIndex * HASH_ENTRIES_PER_BUCKET;
-                for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
-                  HashEntry entry = hashEntries[insertCurrentGlobalIndex+i];
-                  //make this a method like entry.checkFree super unclean currently
-                  if(entry.isFree() ){ //what to do if positions are 0,0,0 then every initial block will map to the point - set initial position to null in constructor
-                    //set offset of last linked list node
-                      int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-                      blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-                      HashEntry * allocBlockHashEntry = new HashEntry(point_d, blockHeapFreeIndex);
-                      size_t insertPos = insertCurrentGlobalIndex + i;
-                      hashEntries[insertPos] = *allocBlockHashEntry;
-                      cudaFree(allocBlock);
-                      cudaFree(allocBlockHashEntry);
-                      if(insertPos > currentGlobalIndex){
-                        hashEntries[currentGlobalIndex].offset = insertPos - currentGlobalIndex;
-                      }
-                      else{
-                        hashEntries[currentGlobalIndex].offset = HASH_TABLE_SIZE - currentGlobalIndex + insertPos;
-                      }
-                      notInserted = false;
-                      unallocatedPoints_d[threadIndex] = 0;
-                      atomicSub(unallocatedPointsCount_d, 1);
-                    
-                    break;
-                  }
-                }
-                atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
-              }
-              insertBucketIndex++;
-              if(insertBucketIndex == NUM_BUCKETS){
-                insertBucketIndex = 0;
-              }
-              if(insertBucketIndex == hashedBucketIndex){
-                // unallocatedPoints_d[threadIndex] = 1;
-                return;
-              }
-              //check if equals hashedbucket then break, only loop through table once then have to return point for next frame
-            }
-            atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
+    if(haveEndLinkedListBucketLock){
+      if(attemptLinkedListVoxelBlockCreation(hashedBucketIndex, blockHeap_d, hashTable_d, insertBucketIndex, currentGlobalIndex, point_d, hashEntries)){
+        unallocatedPoints_d[threadIndex] = 0;
+        atomicSub(unallocatedPointsCount_d, 1); 
+        atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
+        atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
       }
       else{
-        // unallocatedPoints_d[threadIndex] = 1;
-        return;
+        atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
       }
-
-      //free block here or we have another kernel in parallel reset all mutex
-    }
-    //printf("thread id: %d, mutex: %d\n", threadIdx.x, mutex);
-    //determine which blocks are not inserted
-    else{
-      // unallocatedPoints_d[threadIndex] = 1;
+      return;
     }
   }
-  return;
 }
 
 __device__
@@ -668,7 +552,7 @@ void TSDFHandler::processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ
 
   allocateVoxelBlocksAndUpdateVoxels(points_d, origin_transformed_d, pointcloud_size_d, pointcloud_size, hash_table_d, block_heap_d);
 
-  visualize(occupied_voxels_h, occupied_voxels_index, sdfWeightVoxelVals_h, hash_table_d, block_heap_d);
+  //visualize(occupied_voxels_h, occupied_voxels_index, sdfWeightVoxelVals_h, hash_table_d, block_heap_d);
 
   cudaFree(pointcloud_size_d);
   cudaFree(points_d);
