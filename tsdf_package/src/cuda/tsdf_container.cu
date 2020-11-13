@@ -14,8 +14,8 @@ TSDFContainer::TSDFContainer(){
 TSDFContainer::~TSDFContainer(){
     cudaFree(hashTable_d);
     cudaFree(blockHeap_d);
-    free(hashTable_h);
-    free(blockHeap_h);
+    delete hashTable_h;
+    delete blockHeap_h;
 }
 
 HashTable * TSDFContainer::getCudaHashTable(){

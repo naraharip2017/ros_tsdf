@@ -25,8 +25,8 @@ rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub;
 
 float average1, count = 0.0;
 
-Vector3f occupiedVoxels[200000];
-Voxel sdfWeightVoxelVals[200000];
+Vector3f occupiedVoxels[OCCUPIED_VOXELS_SIZE];
+Voxel sdfWeightVoxelVals[OCCUPIED_VOXELS_SIZE];
 
 float publishDistanceSquared = 100;
 
@@ -116,9 +116,12 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
     tsdfHandler->processPointCloudAndUpdateVoxels(temp_cloud, origin_transformed_h, occupiedVoxels, occupiedVoxelsIndex, sdfWeightVoxelVals);
     printf("Occupied Voxels: %d\n", *occupiedVoxelsIndex);
 
+    if(*occupiedVoxelsIndex > OCCUPIED_VOXELS_SIZE){
+      *occupiedVoxelsIndex = OCCUPIED_VOXELS_SIZE;
+    }
     publish(*occupiedVoxelsIndex);
 
-    free(occupiedVoxelsIndex);
+    delete occupiedVoxelsIndex;
 
     auto stop = std::chrono::high_resolution_clock::now(); 
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); 
@@ -136,7 +139,7 @@ int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
 
-  auto node = rclcpp::Node::make_shared("my_subscriber");
+  auto node = rclcpp::Node::make_shared("tsdf_node");
 
   clock_ = node->get_clock();
   tsdfHandler = new TSDFHandler();
@@ -155,8 +158,8 @@ int main(int argc, char ** argv)
 
   rclcpp::shutdown();
 
-  free(tsdfHandler);
-  free(transformer);
+  delete tsdfHandler;
+  delete transformer;
   
   return 0;
 }

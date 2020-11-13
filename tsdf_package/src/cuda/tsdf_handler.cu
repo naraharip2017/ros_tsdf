@@ -357,47 +357,27 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
     return;
   }
   Vector3f point_d = points_d[threadIndex];
-  size_t bucketIndex = retrieveHashIndexFromPoint(point_d);
-  size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
+  size_t hashedBucketIndex = retrieveHashIndexFromPoint(point_d);
+  size_t currentGlobalIndex = hashedBucketIndex * HASH_ENTRIES_PER_BUCKET;
   HashEntry * hashEntries = hashTable_d->hashEntries;
   bool blockNotAllocated = true;
-  HashEntry hashEntry;
-  for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-    hashEntry = hashEntries[currentGlobalIndex+i];
-    if(hashEntry.checkIsPositionEqual(point_d)){
-      unallocatedPoints_d[threadIndex] = 0;
-      atomicSub(unallocatedPointsCount_d, 1);
-      blockNotAllocated = false;
-      return;
-    }
-  }
+  
+  int block_position = getBlockPositionForBlockCoordinates(point_d, hashedBucketIndex, currentGlobalIndex, hashEntries);
 
-  //set currentGlobalIndex to last position in bucket to check linked list
-  currentGlobalIndex+=HASH_ENTRIES_PER_BUCKET-1;
-
-  //check linked list
-  while(hashEntry.offset!=0){
-    short offset = hashEntry.offset;
-    currentGlobalIndex+=offset;
-    if(currentGlobalIndex>=HASH_TABLE_SIZE){
-      currentGlobalIndex %= HASH_TABLE_SIZE;
-    }
-    hashEntry = hashEntries[currentGlobalIndex];
-    if(hashEntry.checkIsPositionEqual(point_d)){
-      unallocatedPoints_d[threadIndex] = 0;
-      atomicSub(unallocatedPointsCount_d, 1);
-      blockNotAllocated = false;
-      return;
-    }
+  //block is already allocated
+  if(block_position!=-1){
+    unallocatedPoints_d[threadIndex] = 0;
+    atomicSub(unallocatedPointsCount_d, 1);
+    return;
   }
 
   //can have a boolean checking if bucket is completely full and avoid rechecking bucket entries
 
-  size_t insertCurrentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
+  size_t insertCurrentGlobalIndex = hashedBucketIndex * HASH_ENTRIES_PER_BUCKET;
 
   //allocate block
   if(blockNotAllocated){
-    if(!atomicCAS(&hashTable_d->mutex[bucketIndex], 0, 1)){
+    if(!atomicCAS(&hashTable_d->mutex[hashedBucketIndex], 0, 1)){
         VoxelBlock * allocBlock = new VoxelBlock();
         bool notInserted = true;
         for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
@@ -412,12 +392,12 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
             notInserted = false;
             unallocatedPoints_d[threadIndex] = 0;
             atomicSub(unallocatedPointsCount_d, 1);
-            atomicExch(&hashTable_d->mutex[bucketIndex], 0);
+            atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
             return;
           }
         }
 
-        size_t insertBucketIndex = bucketIndex + 1;
+        size_t insertBucketIndex = hashedBucketIndex + 1;
         if(insertBucketIndex == NUM_BUCKETS){
           insertBucketIndex = 0;
         }
@@ -426,8 +406,8 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
 
         //check bucket of linked list end if different release hashbucket lock
         size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
-        if(endLinkedListBucket!=bucketIndex){
-          atomicExch(&hashTable_d->mutex[bucketIndex], 0);
+        if(endLinkedListBucket!=hashedBucketIndex){
+          atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
           haveLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
         }
 
@@ -468,7 +448,7 @@ void allocateVoxelBlocks(Vector3f * points_d, HashTable * hashTable_d, BlockHeap
               if(insertBucketIndex == NUM_BUCKETS){
                 insertBucketIndex = 0;
               }
-              if(insertBucketIndex == bucketIndex){
+              if(insertBucketIndex == hashedBucketIndex){
                 // unallocatedPoints_d[threadIndex] = 1;
                 return;
               }
@@ -629,8 +609,10 @@ void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * s
   
     Vector3f v(xCoord, yCoord, zCoord);
     int occupiedVoxelIndex = atomicAdd(&(*index), 1);
-    occupiedVoxels[occupiedVoxelIndex] = v;
-    sdfWeightVoxelVals_d[occupiedVoxelIndex] = voxel;
+    if(occupiedVoxelIndex<OCCUPIED_VOXELS_SIZE){
+      occupiedVoxels[occupiedVoxelIndex] = v;
+      sdfWeightVoxelVals_d[occupiedVoxelIndex] = voxel;
+    }
   }
 }
 
@@ -777,9 +759,9 @@ void TSDFHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f * points_d, in
 
   cudaFree(unallocatedPoints_d);
   cudaFree(unallocatedPointsCount_d);
-  free(size_h);
-  free(unallocatedPoints_h);
-  free(unallocatedPointsCount_h);
+  delete size_h;
+  delete unallocatedPoints_h;
+  delete unallocatedPointsCount_h;
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -815,7 +797,7 @@ void TSDFHandler::visualize(Vector3f * occupied_voxels_h, int * occupied_voxels_
   Vector3f * occupied_voxels_d;
   int * occupied_voxels_index_d;
   Voxel * sdfWeightVoxelVals_d;
-  int occupiedVoxelsSize = 200000;
+  int occupiedVoxelsSize = OCCUPIED_VOXELS_SIZE;
   cudaMalloc(&occupied_voxels_d, sizeof(*occupied_voxels_h)*occupiedVoxelsSize);
   cudaMemcpy(occupied_voxels_d, occupied_voxels_h, sizeof(*occupied_voxels_h)*occupiedVoxelsSize,cudaMemcpyHostToDevice);
   cudaMalloc(&occupied_voxels_index_d, sizeof(*occupied_voxels_index));

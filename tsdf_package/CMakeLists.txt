@@ -80,6 +80,8 @@ ament_export_interfaces(${PROJECT_NAME}_cuda HAS_LIBRARY_TARGET)
 
 install(TARGETS tsdf_node
   DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}/)
 
 install(
   TARGETS ${PROJECT_NAME}_cuda

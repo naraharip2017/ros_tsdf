@@ -19,6 +19,9 @@ const float truncation_distance = .1;
 __constant__
 const float MAX_WEIGHT = 10000.0;
 
+__constant__
+const int OCCUPIED_VOXELS_SIZE = 200000;
+
 class TSDFHandler{
 public:
     __host__
