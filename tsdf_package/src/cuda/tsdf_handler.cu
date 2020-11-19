@@ -50,7 +50,7 @@ void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d
   //   printf("%d  ", freeBlocks[i]);
   // }
   // printf("\n");
-  printf("Current Index: %d\n", blockHeap_d->currentIndex);
+  printf("Current Block Heap Free Index: %d\n", blockHeap_d->currentIndex);
 }
 
 /*
@@ -573,10 +573,11 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
 * determines if voxel is within publishing distance of drone
 */
 __device__
-inline bool withinVisualizationDistance(Vector3f & a, Vector3f & b){
+inline bool withinDistanceSquared(Vector3f & a, Vector3f & b, float thresholdDistanceSquared){
   Vector3f diff = b - a;
   float distanceSquared  = pow(diff(0), 2) + pow(diff(1), 2) + pow(diff(2), 2);
-  if(distanceSquared <= VISUALIZE_DISTANCE_SQUARED){
+  // printf("distance squared %f\n", distanceSquared);
+  if(distanceSquared <= thresholdDistanceSquared){
     return true;
   }
   return false;
@@ -610,7 +611,7 @@ void processOccupiedVoxelBlock(Vector3f * origin_transformed_d, Vector3f * occup
   
     Vector3f v(xCoord, yCoord, zCoord);
     //if within publish distance add voxel to list of occupied voxel and its position
-    if(withinVisualizationDistance(v, *origin_transformed_d)){
+    if(withinDistanceSquared(v, *origin_transformed_d, VISUALIZE_DISTANCE_SQUARED)){
       int occupiedVoxelIndex = atomicAdd(&(*index), 1);
       if(occupiedVoxelIndex<OCCUPIED_VOXELS_SIZE){
         occupiedVoxels[occupiedVoxelIndex] = v;
@@ -642,6 +643,209 @@ void visualizeOccupiedVoxels(Vector3f * origin_transformed_d, HashTable * hashTa
   processOccupiedVoxelBlock<<<numBlocks,threadsPerCudaBlock>>>(origin_transformed_d, occupiedVoxels, index, sdfWeightVoxelVals_d, bottomLeftBlockPos, block);
   cdpErrchk(cudaPeekAtLastError());
   cudaFree(bottomLeftBlockPos);
+}
+
+/*
+* Remove blocks further than garbage collection distance away from lidar point
+*/
+__global__
+void garbageCollect(Vector3f * origin_transformed_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, int * removedBlocksCounts, Vector3f * linkedListDistantBlocks, int * linkedListDistantBlocksCount){
+  int threadIndex = blockIdx.x*threadsPerCudaBlock +threadIdx.x;
+  if(threadIndex >= HASH_TABLE_SIZE) return;
+  HashEntry * hashEntry = &hashTable_d->hashEntries[threadIndex];
+  if(hashEntry->isFree()){
+    return;
+  }
+  Vector3f blockPosition = hashEntry->position;
+  //check if point is far away from lidar to remove
+  if(!withinDistanceSquared(blockPosition, *origin_transformed_d, GARBAGE_COLLECT_DISTANCE_SQUARED))
+  {
+    size_t hashedBucketIndex = retrieveHashIndexFromPoint(blockPosition);
+    size_t threadBucketIndex = threadIndex / HASH_ENTRIES_PER_BUCKET;
+    if((hashedBucketIndex!=threadBucketIndex) || (hashEntry->offset > 0)){
+      int currIndex = (hashedBucketIndex + 1) * HASH_ENTRIES_PER_BUCKET - 1;
+      HashEntry * currHashEntry = &hashTable_d->hashEntries[currIndex];
+      bool found = false;
+      printf("threadid: %d, blockPosition: (%f,%f,%f)\n", threadIndex, blockPosition(0), blockPosition(1), blockPosition(2));
+      printf("threadid: %d, looping block: (%f,%f,%f)\n", threadIndex, currHashEntry->position(0), currHashEntry->position(1), currHashEntry->position(2));
+      while(currHashEntry->offset != 0){
+        printf("threadid: %d, looping block: (%f,%f,%f)\n", threadIndex, currHashEntry->position(0), currHashEntry->position(1), currHashEntry->position(2));
+        if(currHashEntry->checkIsPositionEqual(blockPosition)){
+          printf("threadid: %d, FOUND: (%f,%f,%f)\n", threadIndex, currHashEntry->position(0), currHashEntry->position(1), currHashEntry->position(2));
+          found = true;
+        }
+        currIndex += currHashEntry->offset;
+        if(currIndex>=HASH_TABLE_SIZE){
+          currIndex %= HASH_TABLE_SIZE;
+        }
+        currHashEntry = &hashTable_d->hashEntries[currIndex];
+        if(retrieveHashIndexFromPoint(currHashEntry->position)!=hashedBucketIndex){
+          *linkedListDistantBlocksCount = -2;
+          assert(0);
+        }
+      }
+      if(!found){
+        *linkedListDistantBlocksCount = -1;
+        assert(0);
+      }
+      int index = atomicAdd(&(*linkedListDistantBlocksCount), 1);
+      if(index<10000){
+        linkedListDistantBlocks[index] = blockPosition; // process linked list points after
+      }
+      // currHashEntry = NULL;
+      // delete currHashEntry;
+      return;
+    }
+    hashEntry->setFree();
+    int blockHeapPosition = hashEntry->pointer;
+    int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
+    blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+    atomicAdd(&(*removedBlocksCounts), 1);
+  }
+}
+
+__global__
+void linkedListGarbageCollect(HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * linkedListDistantBlocks, int * linkedListDistantBlocksCount){
+  
+  HashEntry * hashEntries = hashTable_d->hashEntries;
+  HashEntry * currHashEntry = NULL;
+  HashEntry * prevHashEntry = NULL;
+  HashEntry * nextHashEntry = NULL;
+
+  for(int i=0;i<*linkedListDistantBlocksCount; ++i){
+    Vector3f removeBlockPosition = linkedListDistantBlocks[i];
+    int hashedBucketIndex = retrieveHashIndexFromPoint(removeBlockPosition);
+    // //initialize to head of linked list
+    int currIndex = (hashedBucketIndex + 1) * HASH_ENTRIES_PER_BUCKET - 1;
+    currHashEntry = &hashEntries[currIndex];
+    if(retrieveHashIndexFromPoint(currHashEntry->position)!=hashedBucketIndex){
+      *linkedListDistantBlocksCount = -8;
+      assert(0);
+    }
+    bool found = false;
+
+    printf("removeBlockPosition: (%f,%f,%f)\n", removeBlockPosition(0), removeBlockPosition(1), removeBlockPosition(2));
+    // printf("  loop block: (%f,%f,%f)\n", currHashEntry->position(0), currHashEntry->position(1), currHashEntry->position(2));
+    while(currHashEntry->offset != 0){
+      printf("  loop block: (%f,%f,%f)\n", currHashEntry->position(0), currHashEntry->position(1), currHashEntry->position(2));
+      if(currHashEntry->checkIsPositionEqual(removeBlockPosition)){
+        found = true;
+      }
+      currIndex += currHashEntry->offset;
+      if(currIndex>=HASH_TABLE_SIZE){
+        currIndex %= HASH_TABLE_SIZE;
+      }
+      currHashEntry = &hashTable_d->hashEntries[currIndex];
+      if(retrieveHashIndexFromPoint(currHashEntry->position)!=hashedBucketIndex){
+        *linkedListDistantBlocksCount = -10;
+        assert(0);
+      }
+    }
+    if(!found){
+      *linkedListDistantBlocksCount = -2;
+      assert(0);
+    }
+  }
+
+  for(int i=0;i<*linkedListDistantBlocksCount; ++i){
+    Vector3f removeBlockPosition = linkedListDistantBlocks[i];
+    int hashedBucketIndex = retrieveHashIndexFromPoint(removeBlockPosition);
+    // //initialize to head of linked list
+    int currIndex = (hashedBucketIndex + 1) * HASH_ENTRIES_PER_BUCKET - 1;
+    currHashEntry = &hashEntries[currIndex];
+    if(retrieveHashIndexFromPoint(currHashEntry->position)!=hashedBucketIndex){
+      *linkedListDistantBlocksCount = -3;
+      assert(0);
+    }
+    prevHashEntry = NULL; //worked
+    if(currHashEntry->checkIsPositionEqual(removeBlockPosition)){
+      int prevHeadOffset = currHashEntry->offset;
+      int blockHeapPosition = currHashEntry->pointer;
+      int nextIndex = currIndex + prevHeadOffset;
+      if(nextIndex >= HASH_TABLE_SIZE){
+        nextIndex %= HASH_TABLE_SIZE;
+      }
+      nextHashEntry = &hashEntries[nextIndex];
+
+      Vector3f nextHashEntryPosition = nextHashEntry->position;
+      if(retrieveHashIndexFromPoint(nextHashEntryPosition)!=hashedBucketIndex){
+        *linkedListDistantBlocksCount = -4;
+        assert(0);
+      }
+      int nextHashEntryOffset = nextHashEntry->offset;
+      int nextHashEntryPointer = nextHashEntry->pointer;
+      currHashEntry->position = nextHashEntryPosition;
+      currHashEntry->pointer = nextHashEntryPointer;
+      if(nextHashEntryOffset!=0){
+        short newOffset = prevHeadOffset + nextHashEntryOffset;
+        int intNewOffset = prevHeadOffset + nextHashEntryOffset;
+        if(newOffset != intNewOffset){
+          *linkedListDistantBlocksCount = -6;
+          assert(0);
+        }
+        if(newOffset <= nextHashEntryOffset){
+          *linkedListDistantBlocksCount = -5;
+          assert(0);
+        }
+        currHashEntry->offset = newOffset;
+      }
+      else{
+        currHashEntry->offset = 0;
+      }
+      nextHashEntry->setFree();
+      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
+      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+      continue;
+    }
+
+    while(!currHashEntry->checkIsPositionEqual(removeBlockPosition)){
+      currIndex += (int) currHashEntry->offset;
+      if(currIndex >= HASH_TABLE_SIZE){
+        currIndex %= HASH_TABLE_SIZE;
+      }
+      prevHashEntry = currHashEntry;
+      currHashEntry = &hashEntries[currIndex];
+      if(retrieveHashIndexFromPoint(currHashEntry->position)!=hashedBucketIndex){
+        *linkedListDistantBlocksCount = -7;
+        assert(0);
+      }
+      if(currHashEntry->position(0) == 0 &&  currHashEntry->position(1) == 0 && currHashEntry->position(2)){
+        *linkedListDistantBlocksCount = -9;
+        assert(0);
+      }
+      printf("remove positon: (%f,%f,%f), current block position: (%f,%f, %f)\n", 
+      removeBlockPosition(0), removeBlockPosition(1), removeBlockPosition(2),
+      currHashEntry->position(0), currHashEntry->position(1), currHashEntry->position(2));
+    }
+
+    int currOffset = currHashEntry->offset;
+    int prevHashOffset = prevHashEntry->offset;
+    short newOffset = prevHashOffset + currOffset;
+    int intNewOffset = prevHashOffset + currOffset;
+    if(newOffset!=intNewOffset){
+      *linkedListDistantBlocksCount = -6;
+      assert(0);
+    }
+
+    if(currOffset > 0){
+      prevHashEntry->offset = newOffset;
+      currHashEntry->setFree();
+      int blockHeapPosition = currHashEntry->pointer;
+      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
+      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+    }
+    else{
+      prevHashEntry->offset = 0;
+      currHashEntry->setFree();
+      int blockHeapPosition = currHashEntry->pointer;
+      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
+      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+    }
+  }
+  currHashEntry = prevHashEntry = nextHashEntry = NULL;
+  delete(currHashEntry);
+  delete(prevHashEntry);
+  delete(nextHashEntry);
 }
 
 TSDFHandler::TSDFHandler(){
@@ -679,6 +883,8 @@ void TSDFHandler::processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ
   allocateVoxelBlocksAndUpdateVoxels(points_d, origin_transformed_d, pointcloud_size_d, pointcloud_size, hash_table_d, block_heap_d);
 
   visualize(origin_transformed_d, occupied_voxels_h, occupied_voxels_index, sdfWeightVoxelVals_h, hash_table_d, block_heap_d);
+
+  // garbageCollectDistantBlocks(origin_transformed_d, hash_table_d, block_heap_d);
 
   cudaFree(pointcloud_size_d);
   cudaFree(points_d);
@@ -852,5 +1058,144 @@ void TSDFHandler::visualize(Vector3f * origin_transformed_d, Vector3f * occupied
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   printf("Visualize Voxels Duration: %f\n", milliseconds);
+}
 
+/*
+* Remove blocks further than garbage collection distance so not keeping distant block data
+*/
+void TSDFHandler::garbageCollectDistantBlocks(Vector3f * origin_transformed_d, HashTable * hash_table_d, BlockHeap * block_heap_d){
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start);
+
+  int * removedBlocksCount_h = new int(0);
+  int * removedBlocksCount_d;
+  cudaMalloc(&removedBlocksCount_d, sizeof(int));
+  cudaMemcpy(removedBlocksCount_d, removedBlocksCount_h, sizeof(* removedBlocksCount_h), cudaMemcpyHostToDevice);
+
+  int * linkedListDistantBlocksCount_h = new int(0);
+  int * linkedListDistantBlocksCount_d;
+  cudaMalloc(&linkedListDistantBlocksCount_d, sizeof(int));
+  cudaMemcpy(linkedListDistantBlocksCount_d, linkedListDistantBlocksCount_h, sizeof(* linkedListDistantBlocksCount_h), cudaMemcpyHostToDevice);
+
+  int maxLinkedListBlocks = 10000;
+  Vector3f linkedListDistantBlocks_h[maxLinkedListBlocks];
+  Vector3f * linkedListDistantBlocks_d;
+  cudaMalloc(&linkedListDistantBlocks_d, sizeof(*linkedListDistantBlocks_h)*maxLinkedListBlocks);
+  cudaMemcpy(linkedListDistantBlocks_d, linkedListDistantBlocks_h, sizeof(*linkedListDistantBlocks_h)*maxLinkedListBlocks, cudaMemcpyHostToDevice);
+
+  int numCudaBlocks = HASH_TABLE_SIZE / threadsPerCudaBlock + 1;
+  garbageCollect<<<numCudaBlocks, threadsPerCudaBlock>>>(origin_transformed_d, hash_table_d, block_heap_d, removedBlocksCount_d, linkedListDistantBlocks_d, linkedListDistantBlocksCount_d);
+  gpuErrchk(cudaPeekAtLastError());
+  cudaDeviceSynchronize();
+  cudaMemcpy(removedBlocksCount_h, removedBlocksCount_d, sizeof(* removedBlocksCount_h), cudaMemcpyDeviceToHost);
+  cudaMemcpy(linkedListDistantBlocksCount_h, linkedListDistantBlocksCount_d, sizeof(* linkedListDistantBlocksCount_h), cudaMemcpyDeviceToHost);
+  if(*linkedListDistantBlocksCount_h == -1){
+    printf("hash already messed\n");
+    exit(1);
+  }
+  if(*linkedListDistantBlocksCount_h == -2){
+    printf("-2.1\n");
+    exit(1);
+  }
+
+  linkedListGarbageCollect<<<1,1>>>(hash_table_d, block_heap_d, linkedListDistantBlocks_d, linkedListDistantBlocksCount_d);
+  gpuErrchk(cudaPeekAtLastError());
+  cudaDeviceSynchronize();
+  cudaMemcpy(linkedListDistantBlocksCount_h, linkedListDistantBlocksCount_d, sizeof(* linkedListDistantBlocksCount_h), cudaMemcpyDeviceToHost);
+  switch(*linkedListDistantBlocksCount_h){
+    case -3: 
+      printf("hashing error\n");
+      exit(1);
+    case -1:
+      printf("short error\n");
+      exit(1);
+    case -2: 
+      printf("not found num 2\n");
+      exit(1);
+    case -4:
+      printf("-4\n");
+      exit(1);
+    case -5:
+      printf("-5\n");
+      exit(1);
+    case -6:
+      printf("-6\n");
+      exit(1);
+    case -7:
+      printf("-7\n");
+      exit(1);  
+    case -8:
+      printf("-8\n");
+      exit(1); 
+    case -9:
+      printf("-9\n");
+      exit(1); 
+    case -10:
+      printf("-10\n");
+      exit(1); 
+
+  };
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  float milliseconds = 0;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  printf("Garbage Collection Duration: %f\n", milliseconds);
+  
+  printf("Linked List Blocks Removed: %d\n", *linkedListDistantBlocksCount_h);
+  printf("Total Blocks Removed: %d\n", *removedBlocksCount_h + *linkedListDistantBlocksCount_h);
+
+  delete removedBlocksCount_h;
+  delete linkedListDistantBlocksCount_h;
+  cudaFree(removedBlocksCount_d);
+  cudaFree(linkedListDistantBlocksCount_d);
+  cudaFree(linkedListDistantBlocks_d);
+}
+
+void TSDFHandler::test(){
+  int size = 5;
+  pcl::PointXYZ * point1 = new pcl::PointXYZ(101.5,.5,.5);
+  pcl::PointXYZ * point4 = new pcl::PointXYZ(105.5,.5, .5);
+  pcl::PointXYZ * point2 = new pcl::PointXYZ(109.5,.5, .5);
+  pcl::PointXYZ * point3 = new pcl::PointXYZ(7.5,.5, .5);
+  pcl::PointXYZ * point5 = new pcl::PointXYZ(123.5,.5, .5);
+
+  pcl::PointXYZ * points_h = new pcl::PointXYZ[size];
+  points_h[0] = *point1;
+  points_h[1] = *point2;
+  points_h[2] = *point3;
+  points_h[3] = *point4;
+  points_h[4] = *point5;
+
+  pcl::PointXYZ * points_d;
+  int pointcloud_size = size;
+  int * pointcloud_size_d;
+
+  cudaMalloc(&points_d, sizeof(*points_h)*pointcloud_size);
+  cudaMemcpy(points_d, points_h, sizeof(*points_h)*pointcloud_size, cudaMemcpyHostToDevice);
+  cudaMalloc(&pointcloud_size_d, sizeof(int));
+  cudaMemcpy(pointcloud_size_d, &pointcloud_size, sizeof(int), cudaMemcpyHostToDevice);
+
+  Vector3f * origin_transformed_h = new Vector3f(0,0,0);
+
+  Vector3f * origin_transformed_d;
+  cudaMalloc(&origin_transformed_d, sizeof(*origin_transformed_h));
+  cudaMemcpy(origin_transformed_d, origin_transformed_h,sizeof(*origin_transformed_h),cudaMemcpyHostToDevice);
+
+  HashTable * hash_table_d = tsdfContainer->getCudaHashTable();
+  BlockHeap * block_heap_d = tsdfContainer->getCudaBlockHeap();
+
+  allocateVoxelBlocksAndUpdateVoxels(points_d, origin_transformed_d, pointcloud_size_d, pointcloud_size, hash_table_d, block_heap_d);
+
+  // visualize(occupied_voxels_h, occupied_voxels_index, sdfWeightVoxelVals_h, hash_table_d, block_heap_d);
+  
+  garbageCollectDistantBlocks(origin_transformed_d, hash_table_d, block_heap_d);
+
+  // printHashTableAndBlockHeap<<<1,1>>>(hash_table_d, block_heap_d);
+  cudaDeviceSynchronize();
+  
+  cudaFree(pointcloud_size_d);
+  cudaFree(points_d);
+  cudaFree(origin_transformed_d);
 }

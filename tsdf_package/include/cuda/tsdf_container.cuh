@@ -9,23 +9,42 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
-#define VOXEL_PER_BLOCK 2 //param
-#define HASH_ENTRIES_PER_BUCKET 2 //param
-#define NUM_BUCKETS 1000000 //param
-#define HASH_TABLE_SIZE HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS
-#define NUM_HEAP_BLOCKS 200000 //param
-#define VOXEL_SIZE .5 //param
-#define HALF_VOXEL_SIZE VOXEL_SIZE / 2
-
-#define PRIME_ONE 73856093
-#define PRIME_TWO 19349669
-#define PRIME_THREE 83492791
+// #define VOXEL_PER_BLOCK 2 //param
+// #define HASH_ENTRIES_PER_BUCKET 2 //param
+// #define NUM_BUCKETS 1000000 //param
+// #define HASH_TABLE_SIZE HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS
+// #define NUM_HEAP_BLOCKS 200000 //param
+// #define VOXEL_SIZE .5 //param
+// #define HALF_VOXEL_SIZE VOXEL_SIZE / 2
 
 __constant__
+const int VOXEL_PER_BLOCK = 2;
+__constant__
+const int HASH_ENTRIES_PER_BUCKET = 2;
+__constant__
+const int NUM_BUCKETS = 1000000;
+__constant__
+const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS;
+__constant__
+const int NUM_HEAP_BLOCKS = 200000;
+__constant__
+const float VOXEL_SIZE = .5;
+__constant__
+const float HALF_VOXEL_SIZE = VOXEL_SIZE / 2;
+__constant__
 const float VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_BLOCK;
+__constant__
 const float HALF_VOXEL_BLOCK_SIZE = VOXEL_BLOCK_SIZE / 2;
+__constant__
 const float EPSILON = VOXEL_BLOCK_SIZE / 4;
+__constant__
 const float VOXEL_EPSILON = VOXEL_SIZE / 4;
+__constant__
+const int PRIME_ONE = 73856093;
+__constant__
+const int PRIME_TWO = 19349669;
+__constant__
+const int PRIME_THREE = 83492791;
 
 struct Voxel{
     float sdf;
@@ -48,8 +67,8 @@ struct VoxelBlock{
 
 struct HashEntry{
     Vector3f position; 
-    short offset;
-    int pointer;
+    short offset; //for linked list
+    int pointer; //index in block heap
     __device__ __host__
     HashEntry():position(0,0,0),offset(0),pointer(0){
     }
@@ -64,6 +83,11 @@ struct HashEntry{
             return true;
             
         return false;
+    }
+
+    __device__ __host__
+    void setFree(){ //when deleting entries make sure the positions do not get set to -0 otherwise change this to an epsilon or fabs
+        position(0) = position(1) = position(2) = 0;
     }
 
     __device__ __host__

@@ -20,10 +20,13 @@ __constant__
 const float MAX_WEIGHT = 10000.0;
 
 __constant__
-const int OCCUPIED_VOXELS_SIZE = 200000;
+const int OCCUPIED_VOXELS_SIZE = 100000;
 
 __constant__
-const float VISUALIZE_DISTANCE_SQUARED = 250000;
+const float VISUALIZE_DISTANCE_SQUARED = 625;
+
+__constant__
+const float GARBAGE_COLLECT_DISTANCE_SQUARED = 2500;
 
 class TSDFHandler{
 public:
@@ -51,6 +54,11 @@ public:
     __host__
     void visualize(Vector3f * origin_transformed_d, Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
+    __host__
+    void garbageCollectDistantBlocks(Vector3f * origin_transformed_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
+
+    __host__
+    void test();
 private:
     TSDFContainer * tsdfContainer; 
     Vector3f * occupied_voxels_d;
