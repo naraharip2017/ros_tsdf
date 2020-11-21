@@ -26,8 +26,8 @@ rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub;
 float average, count = 0.0;
 
 bool visualizePublishedVoxels;
-
 float publishDistanceSquared;
+float truncationDistance;
 
 //arrays to hold occupied voxel data
 Vector3f occupiedVoxels[OCCUPIED_VOXELS_SIZE];
@@ -96,6 +96,7 @@ void publishWithVisualization(int & numVoxels){
     vis_pub->publish(markerArray);
 
     message.size = message.voxels.size();
+    message.truncation_distance = truncationDistance;
     tsdf_pub->publish(message);
 }
 
@@ -121,6 +122,7 @@ void publish(int & numVoxels){
     }
 
     message.size = message.voxels.size();
+    message.truncation_distance = truncationDistance;
     tsdf_pub->publish(message);
   }
 }
@@ -171,14 +173,14 @@ int main(int argc, char ** argv)
   node->declare_parameter<float>("max_weight", 10000.0);
   node->declare_parameter<float>("publish_distance_squared", 425);
   node->declare_parameter<bool>("visualize_published_voxels", false);
-  float voxel_size, truncation_distance, max_weight;
+  float voxel_size, max_weight;
   node->get_parameter("voxel_size", voxel_size);
-  node->get_parameter("truncation_distance", truncation_distance);
+  node->get_parameter("truncation_distance", truncationDistance);
   node->get_parameter("max_weight", max_weight);
   node->get_parameter("publish_distance_squared", publishDistanceSquared);
   node->get_parameter("visualize_published_voxels", visualizePublishedVoxels);
 
-  Params params(voxel_size, truncation_distance, max_weight, publishDistanceSquared);
+  Params params(voxel_size, truncationDistance, max_weight, publishDistanceSquared);
   initializeGlobalVars(params);
 
   clock_ = node->get_clock();
