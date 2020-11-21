@@ -25,12 +25,13 @@ rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub;
 //keep track of average run time
 float average, count = 0.0;
 
+bool visualizePublishedVoxels;
+
+float publishDistanceSquared;
+
 //arrays to hold occupied voxel data
 Vector3f occupiedVoxels[OCCUPIED_VOXELS_SIZE];
 Voxel sdfWeightVoxelVals[OCCUPIED_VOXELS_SIZE];
-
-//distance squared of publishing distance around drone
-float publishDistanceSquared = 100;
 
 //determines if voxel is within publishing distance of drone - move this logic to tsdf handler
 inline bool withinPublishDistance(Vector3f & a, Vector3f & b){
@@ -42,29 +43,26 @@ inline bool withinPublishDistance(Vector3f & a, Vector3f & b){
   return false;
 }
 
-//publishes visualization and tsdf topic
-void publish(int & numVoxels){ 
+void publishWithVisualization(int & numVoxels){
     visualization_msgs::msg::MarkerArray markerArray;
-    markerArray.markers.resize(3);
-    visualization_msgs::msg::Marker markerGreen, markerRed, markerBlue;
-    markerGreen.type = markerRed.type = markerBlue.type = visualization_msgs::msg::Marker::POINTS;
-    markerGreen.action = markerRed.action = markerBlue.action = visualization_msgs::msg::Marker::ADD;
-    markerGreen.header.frame_id = markerRed.header.frame_id = markerBlue.header.frame_id= "drone_1";
-    markerGreen.ns = markerRed.ns = markerBlue.ns = "occupied_voxels";
+    markerArray.markers.resize(2);
+    visualization_msgs::msg::Marker markerGreen, markerRed;
+    markerGreen.type = markerRed.type = visualization_msgs::msg::Marker::POINTS;
+    markerGreen.action = markerRed.action = visualization_msgs::msg::Marker::ADD;
+    markerGreen.header.frame_id = markerRed.header.frame_id= "drone_1";
+    markerGreen.ns = markerRed.ns = "occupied_voxels";
     markerGreen.id = 0;
     markerRed.id = 1;
-    markerBlue.id = 2;
-    markerGreen.pose.orientation.w = markerRed.pose.orientation.w = markerBlue.pose.orientation.w = 1.0;
-    markerGreen.scale.x = markerRed.scale.x = markerBlue.scale.x = .1;
-    markerGreen.scale.y = markerRed.scale.y = markerBlue.scale.y = .1;
-    markerGreen.scale.z = markerRed.scale.z = markerBlue.scale.y = .1;
-    markerGreen.color.a = markerRed.color.a = markerBlue.color.a = 1.0; // Don't forget to set the alpha!
-    markerGreen.color.r = markerBlue.color.r = 0.0;
-    markerRed.color.g = markerBlue.color.g = 0.0;
+    markerGreen.pose.orientation.w = markerRed.pose.orientation.w = 1.0;
+    markerGreen.scale.x = markerRed.scale.x = .1;
+    markerGreen.scale.y = markerRed.scale.y = .1;
+    markerGreen.scale.z = markerRed.scale.z = .1;
+    markerGreen.color.a = markerRed.color.a = 1.0; // Don't forget to set the alpha!
+    markerGreen.color.r = 0.0;
+    markerRed.color.g = 0.0;
     markerGreen.color.b = markerRed.color.b = 0.0;
     markerRed.color.r = 1.0;
     markerGreen.color.g = 1.0;
-    markerBlue.color.b = 1.0;
 
     auto message = tsdf_package_msgs::msg::Tsdf(); 
 
@@ -76,35 +74,55 @@ void publish(int & numVoxels){
       p.x = v(1);
       p.y = v(0);
       p.z = v(2)*-1;
-      if(withinPublishDistance(v, origin_transformed)){
-        markerBlue.points.push_back(p);
 
-        auto msgVoxel = tsdf_package_msgs::msg::Voxel();
-        msgVoxel.sdf = voxel.sdf;
-        msgVoxel.weight = voxel.weight;
-        msgVoxel.x = v(0);
-        msgVoxel.y = v(1);
-        msgVoxel.z = v(2);
-        message.voxels.push_back(msgVoxel);
+      auto msgVoxel = tsdf_package_msgs::msg::Voxel();
+      msgVoxel.sdf = voxel.sdf;
+      msgVoxel.weight = voxel.weight;
+      msgVoxel.x = v(0);
+      msgVoxel.y = v(1);
+      msgVoxel.z = v(2);
+      message.voxels.push_back(msgVoxel);
+      if(voxel.sdf >= 0){
+        markerGreen.points.push_back(p);
       }
       else{
-        if(voxel.sdf >= 0){
-          markerGreen.points.push_back(p);
-        }
-        else{
-          markerRed.points.push_back(p);
-        }
+        markerRed.points.push_back(p);
       }
     }
 
     markerGreen.header.stamp = markerRed.header.stamp = clock_->now();
     markerArray.markers[0] = markerGreen;
     markerArray.markers[1] = markerRed;
-    markerArray.markers[2] = markerBlue;
     vis_pub->publish(markerArray);
 
     message.size = message.voxels.size();
     tsdf_pub->publish(message);
+}
+
+//publishes visualization and tsdf topic
+void publish(int & numVoxels){ 
+  if(visualizePublishedVoxels){
+    publishWithVisualization(numVoxels);
+  }
+  else{
+    auto message = tsdf_package_msgs::msg::Tsdf(); 
+    for(int i=0;i<numVoxels;i++){
+      Vector3f v = occupiedVoxels[i];
+      Voxel voxel = sdfWeightVoxelVals[i];
+      geometry_msgs::msg::Point p;
+
+      auto msgVoxel = tsdf_package_msgs::msg::Voxel();
+      msgVoxel.sdf = voxel.sdf;
+      msgVoxel.weight = voxel.weight;
+      msgVoxel.x = v(0);
+      msgVoxel.y = v(1);
+      msgVoxel.z = v(2);
+      message.voxels.push_back(msgVoxel);
+    }
+
+    message.size = message.voxels.size();
+    tsdf_pub->publish(message);
+  }
 }
 
 //callback for point cloud subscriber
@@ -149,10 +167,18 @@ int main(int argc, char ** argv)
   auto node = rclcpp::Node::make_shared("tsdf_node");
 
   node->declare_parameter<float>("voxel_size", .5);
-  float voxel_size;
+  node->declare_parameter<float>("truncation_distance", .1);
+  node->declare_parameter<float>("max_weight", 10000.0);
+  node->declare_parameter<float>("publish_distance_squared", 425);
+  node->declare_parameter<bool>("visualize_published_voxels", false);
+  float voxel_size, truncation_distance, max_weight;
   node->get_parameter("voxel_size", voxel_size);
+  node->get_parameter("truncation_distance", truncation_distance);
+  node->get_parameter("max_weight", max_weight);
+  node->get_parameter("publish_distance_squared", publishDistanceSquared);
+  node->get_parameter("visualize_published_voxels", visualizePublishedVoxels);
 
-  Params params(voxel_size);
+  Params params(voxel_size, truncation_distance, max_weight, publishDistanceSquared);
   initializeGlobalVars(params);
 
   clock_ = node->get_clock();

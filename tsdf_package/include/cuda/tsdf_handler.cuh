@@ -15,24 +15,21 @@
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
 __constant__
-const float truncation_distance = .1;
+const int OCCUPIED_VOXELS_SIZE = 100000; //if holes appearing in visualization, increase this value
 
-__constant__
-const float MAX_WEIGHT = 10000.0;
+//distance squared of publishing around drone
+// __constant__
+// const float PUBLISH_DISTANCE_SQUARED = 2500;
 
-__constant__
-const int OCCUPIED_VOXELS_SIZE = 200000;
-
-__constant__
-const float VISUALIZE_DISTANCE_SQUARED = 250000;
-
-//param
-__device__ float VOXEL_SIZE;
+__device__ float VOXEL_SIZE; //param
 __device__ float HALF_VOXEL_SIZE;
-__device__ float VOXEL_BLOCK_SIZE;
+__device__ float VOXEL_BLOCK_SIZE; // = VOXELS_PER_SIDE * VOXEL_SIZE
 __device__ float HALF_VOXEL_BLOCK_SIZE;
-__device__ float BLOCK_EPSILON;
-__device__ float VOXEL_EPSILON;
+__device__ float BLOCK_EPSILON; //used for determining if floating point values are equal when comparing block positions
+__device__ float VOXEL_EPSILON; //used for determining if floating point values are equal when comparing voxel positions
+__device__ float TRUNCATION_DISTANCE; //param
+__device__ float MAX_WEIGHT; //param
+__device__ float PUBLISH_DISTANCE_SQUARED;
 
 class TSDFHandler{
 public:
@@ -58,7 +55,7 @@ public:
     void updateVoxels(int & num_cuda_blocks, pcl::PointXYZ * points_d, Vector3f * origin_transformed_d, int * pointcloud_size_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
     __host__
-    void visualize(Vector3f * origin_transformed_d, Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
+    void publishOccupiedVoxels(Vector3f * origin_transformed_d, Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
 private:
     TSDFContainer * tsdfContainer; 

@@ -9,16 +9,17 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
+//todo: make params - need to figure out how to allocate array of objects with dynamic pointers
 __constant__
-const int VOXEL_PER_BLOCK = 10; //param
+const int VOXEL_PER_SIDE = 2;
 __constant__
-const int HASH_ENTRIES_PER_BUCKET = 2; //param
+const int HASH_ENTRIES_PER_BUCKET = 2;
 __constant__
-const int NUM_BUCKETS = 1000000; //param
+const int NUM_BUCKETS = 1000000;
 __constant__
 const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS;
 __constant__
-const int NUM_HEAP_BLOCKS = 200000; //param
+const int NUM_HEAP_BLOCKS = 200000;
 __constant__
 const int PRIME_ONE = 73856093;
 __constant__
@@ -35,11 +36,11 @@ struct Voxel{
 };
 
 struct VoxelBlock{
-    Voxel voxels[VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK];
-    int mutex[VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK]; //change to bool
+    Voxel voxels[VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE];
+    int mutex[VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE]; //change to bool
     __device__ __host__
     VoxelBlock(){
-        for(int i=0;i<VOXEL_PER_BLOCK * VOXEL_PER_BLOCK * VOXEL_PER_BLOCK; ++i){
+        for(int i=0;i<VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE; ++i){
             mutex[i] = 0;
         }
     }
