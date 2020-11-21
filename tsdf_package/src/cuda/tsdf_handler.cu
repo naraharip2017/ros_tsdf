@@ -254,7 +254,7 @@ int getBlockPositionForBlockCoordinates(Vector3f & voxelBlockCoordinates, size_t
   //check the hashed bucket for the block
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
     hashEntry = hashEntries[currentGlobalIndex+i];
-    if(hashEntry.checkIsPositionEqual(voxelBlockCoordinates)){
+    if(checkFloatingPointVectorsEqual(hashEntry.position, voxelBlockCoordinates, BLOCK_EPSILON)){
       return hashEntry.pointer;
     }
   }
@@ -269,7 +269,7 @@ int getBlockPositionForBlockCoordinates(Vector3f & voxelBlockCoordinates, size_t
       currentGlobalIndex %= HASH_TABLE_SIZE;
     }
     hashEntry = hashEntries[currentGlobalIndex];
-    if(hashEntry.checkIsPositionEqual(voxelBlockCoordinates)){ 
+    if(checkFloatingPointVectorsEqual(hashEntry.position, voxelBlockCoordinates, BLOCK_EPSILON)){
       return hashEntry.pointer;
     }
   }
@@ -853,4 +853,20 @@ void TSDFHandler::visualize(Vector3f * origin_transformed_d, Vector3f * occupied
   cudaEventElapsedTime(&milliseconds, start, stop);
   printf("Visualize Voxels Duration: %f\n", milliseconds);
 
+}
+
+__global__
+void initializeGlobalVarsCuda(float * voxel_size_d){
+  VOXEL_SIZE = *voxel_size_d;
+  HALF_VOXEL_SIZE = VOXEL_SIZE / 2;
+  VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_BLOCK;
+  HALF_VOXEL_BLOCK_SIZE = VOXEL_BLOCK_SIZE / 2;
+  BLOCK_EPSILON = VOXEL_BLOCK_SIZE / 4;
+  VOXEL_EPSILON = VOXEL_SIZE / 4; 
+}
+
+void initializeGlobalVars(Params params){
+  initializeGlobalVarsCuda<<<1,1>>>(params.voxel_size_param_d);
+  gpuErrchk( cudaPeekAtLastError() );
+  cudaDeviceSynchronize();
 }

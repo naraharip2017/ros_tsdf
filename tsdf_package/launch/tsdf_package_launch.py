@@ -6,6 +6,9 @@ def generate_launch_description():
         Node(
             package='tsdf_package',
             node_executable='tsdf_node',
-            node_name='tsdf_node'
+            node_name='tsdf_node',
+            parameters=[
+                {"voxel_size" : .1}
+            ]
         )
     ])

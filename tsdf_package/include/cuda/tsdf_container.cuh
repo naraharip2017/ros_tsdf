@@ -9,23 +9,22 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
-#define VOXEL_PER_BLOCK 2 //param
-#define HASH_ENTRIES_PER_BUCKET 2 //param
-#define NUM_BUCKETS 1000000 //param
-#define HASH_TABLE_SIZE HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS
-#define NUM_HEAP_BLOCKS 200000 //param
-#define VOXEL_SIZE .5 //param
-#define HALF_VOXEL_SIZE VOXEL_SIZE / 2
-
-#define PRIME_ONE 73856093
-#define PRIME_TWO 19349669
-#define PRIME_THREE 83492791
-
 __constant__
-const float VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_BLOCK;
-const float HALF_VOXEL_BLOCK_SIZE = VOXEL_BLOCK_SIZE / 2;
-const float EPSILON = VOXEL_BLOCK_SIZE / 4;
-const float VOXEL_EPSILON = VOXEL_SIZE / 4;
+const int VOXEL_PER_BLOCK = 10; //param
+__constant__
+const int HASH_ENTRIES_PER_BUCKET = 2; //param
+__constant__
+const int NUM_BUCKETS = 1000000; //param
+__constant__
+const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS;
+__constant__
+const int NUM_HEAP_BLOCKS = 200000; //param
+__constant__
+const int PRIME_ONE = 73856093;
+__constant__
+const int PRIME_TWO = 19349669;
+__constant__
+const int PRIME_THREE = 83492791;
 
 struct Voxel{
     float sdf;
@@ -61,15 +60,6 @@ struct HashEntry{
     __device__ __host__
     bool isFree(){ //when deleting entries make sure the positions do not get set to -0 otherwise change this to an epsilon or fabs
         if((position(0) == 0) && (position(1) == 0) && (position(2) == 0))
-            return true;
-            
-        return false;
-    }
-
-    __device__ __host__
-    bool checkIsPositionEqual(Vector3f B){
-        Vector3f diff = this->position-B;
-        if((fabs(diff(0)) < EPSILON) && (fabs(diff(1)) < EPSILON) && (fabs(diff(2)) < EPSILON))
             return true;
             
         return false;

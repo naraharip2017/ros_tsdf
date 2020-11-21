@@ -10,6 +10,7 @@
 #include <assert.h>
 
 #include "cuda/tsdf_container.cuh"
+#include "params.hpp"
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
@@ -24,6 +25,14 @@ const int OCCUPIED_VOXELS_SIZE = 200000;
 
 __constant__
 const float VISUALIZE_DISTANCE_SQUARED = 250000;
+
+//param
+__device__ float VOXEL_SIZE;
+__device__ float HALF_VOXEL_SIZE;
+__device__ float VOXEL_BLOCK_SIZE;
+__device__ float HALF_VOXEL_BLOCK_SIZE;
+__device__ float BLOCK_EPSILON;
+__device__ float VOXEL_EPSILON;
 
 class TSDFHandler{
 public:
@@ -55,5 +64,7 @@ private:
     TSDFContainer * tsdfContainer; 
     Vector3f * occupied_voxels_d;
 };
+
+void initializeGlobalVars(Params params);
 
 #endif

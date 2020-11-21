@@ -4,9 +4,9 @@
 
 #include "tsdf_package_msgs/msg/tsdf.hpp"
 #include "tsdf_package_msgs/msg/voxel.hpp"
-#include "cuda/tsdf_container.cuh"
 #include "cuda/tsdf_handler.cuh"
 #include "transformer.hpp"
+#include "params.hpp"
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
@@ -143,9 +143,17 @@ void callback(sensor_msgs::msg::PointCloud2::SharedPtr msg)
 
 int main(int argc, char ** argv)
 {
+
   rclcpp::init(argc, argv);
 
   auto node = rclcpp::Node::make_shared("tsdf_node");
+
+  node->declare_parameter<float>("voxel_size", .5);
+  float voxel_size;
+  node->get_parameter("voxel_size", voxel_size);
+
+  Params params(voxel_size);
+  initializeGlobalVars(params);
 
   clock_ = node->get_clock();
   tsdfHandler = new TSDFHandler();
