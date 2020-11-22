@@ -33,9 +33,10 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(tsdf_package_msgs REQUIRED)
 
-add_executable(
-  tsdf_node src/tsdf_node.cpp
+add_executable(tsdf_node 
+  src/tsdf_node.cpp
   src/transformer.cpp
+  src/publisher.cpp
 )
 target_include_directories(tsdf_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

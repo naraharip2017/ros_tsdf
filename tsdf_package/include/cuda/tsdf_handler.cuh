@@ -12,10 +12,8 @@
 #include "cuda/tsdf_container.cuh"
 #include "params.hpp"
 
-typedef Eigen::Matrix<float, 3, 1> Vector3f;
-
 __constant__
-const int OCCUPIED_VOXELS_SIZE = 100000; //if holes appearing in visualization, increase this value
+const int OCCUPIED_VOXELS_SIZE = 60000; //if holes appearing in visualization, increase this value
 
 //distance squared of publishing around drone
 // __constant__
