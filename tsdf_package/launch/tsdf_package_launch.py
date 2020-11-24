@@ -13,7 +13,8 @@ def generate_launch_description():
                     "truncation_distance" : .1,
                     "max_weight" : 10000.0,
                     "visualize_published_voxels" : True,
-                    "publish_distance_squared" : 900
+                    "publish_distance_squared" : 5625.0,
+                    "garbage_collect_distance_squared" : 10000.0
                 }
             ]
         )

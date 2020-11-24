@@ -13,11 +13,10 @@
 #include "params.hpp"
 
 __constant__
-const int OCCUPIED_VOXELS_SIZE = 60000; //if holes appearing in visualization, increase this value
+const int OCCUPIED_VOXELS_SIZE = 100000; //if holes appearing in visualization, increase this value
 
-//distance squared of publishing around drone
-// __constant__
-// const float PUBLISH_DISTANCE_SQUARED = 2500;
+__constant__
+const int MAX_LINKED_LIST_BLOCKS = 1000;
 
 __device__ float VOXEL_SIZE; //param
 __device__ float HALF_VOXEL_SIZE;
@@ -27,7 +26,8 @@ __device__ float BLOCK_EPSILON; //used for determining if floating point values 
 __device__ float VOXEL_EPSILON; //used for determining if floating point values are equal when comparing voxel positions
 __device__ float TRUNCATION_DISTANCE; //param
 __device__ float MAX_WEIGHT; //param
-__device__ float PUBLISH_DISTANCE_SQUARED;
+__device__ float PUBLISH_DISTANCE_SQUARED; //distance squared of publishing around drone
+__device__ float GARBAGE_COLLECT_DISTANCE_SQUARED; //distance squared from drone to delete voxel blocks
 
 class TSDFHandler{
 public:
@@ -55,6 +55,8 @@ public:
     __host__
     void publishOccupiedVoxels(Vector3f * origin_transformed_d, Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
+    __host__
+    void garbageCollectDistantBlocks(Vector3f * origin_transformed_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
 private:
     TSDFContainer * tsdfContainer; 
     Vector3f * occupied_voxels_d;

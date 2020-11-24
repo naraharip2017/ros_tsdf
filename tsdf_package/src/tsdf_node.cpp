@@ -21,11 +21,7 @@ rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub;
 rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub;
 
 //keep track of average run time
-float average, count = 0.0;
-
-bool visualizePublishedVoxels;
-float publishDistanceSquared;
-float truncationDistance;
+double average, count = 0.0;
 
 //arrays to hold occupied voxel data
 Vector3f occupiedVoxels[OCCUPIED_VOXELS_SIZE];
@@ -76,15 +72,18 @@ int main(int argc, char ** argv)
   node->declare_parameter<float>("truncation_distance", .1);
   node->declare_parameter<float>("max_weight", 10000.0);
   node->declare_parameter<float>("publish_distance_squared", 425.0);
+  node->declare_parameter<float>("garbage_collect_distance_squared", 2500.0);
   node->declare_parameter<bool>("visualize_published_voxels", false);
-  float voxel_size, max_weight;
+  float voxel_size, max_weight, publish_distance_squared, truncation_distance, garbage_collect_distance_squared;
+  bool visualize_published_voxels;
   node->get_parameter("voxel_size", voxel_size);
-  node->get_parameter("truncation_distance", truncationDistance);
+  node->get_parameter("truncation_distance", truncation_distance);
   node->get_parameter("max_weight", max_weight);
-  node->get_parameter("publish_distance_squared", publishDistanceSquared);
-  node->get_parameter("visualize_published_voxels", visualizePublishedVoxels);
+  node->get_parameter("publish_distance_squared", publish_distance_squared);
+  node->get_parameter("visualize_published_voxels", visualize_published_voxels);
+  node->get_parameter("garbage_collect_distance_squared", garbage_collect_distance_squared);
 
-  Params params(voxel_size, truncationDistance, max_weight, publishDistanceSquared);
+  Params params(voxel_size, truncation_distance, max_weight, publish_distance_squared, garbage_collect_distance_squared);
   initializeGlobalVars(params);
 
   clock_ = node->get_clock();
@@ -99,7 +98,7 @@ int main(int argc, char ** argv)
   tsdfHandler = new TSDFHandler();
   //source frame set to lidar frame
   transformer = new Transformer("drone_1/LidarCustom", clock_);
-  publisher = new Publisher(vis_pub, tsdf_pub, visualizePublishedVoxels, publishDistanceSquared, truncationDistance, clock_, occupiedVoxels, sdfWeightVoxelVals);
+  publisher = new Publisher(vis_pub, tsdf_pub, visualize_published_voxels, publish_distance_squared, truncation_distance, clock_, occupiedVoxels, sdfWeightVoxelVals);
 
   rclcpp::spin(node);
 

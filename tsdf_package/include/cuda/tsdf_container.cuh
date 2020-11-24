@@ -19,7 +19,7 @@ const int NUM_BUCKETS = 1000000;
 __constant__
 const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS;
 __constant__
-const int NUM_HEAP_BLOCKS = 200000;
+const int NUM_HEAP_BLOCKS = 20000;
 __constant__
 const int PRIME_ONE = 73856093;
 __constant__
@@ -48,7 +48,7 @@ struct VoxelBlock{
 
 struct HashEntry{
     Vector3f position; 
-    short offset;
+    int offset;
     int pointer;
     __device__ __host__
     HashEntry():position(0,0,0),offset(0),pointer(0){
@@ -64,6 +64,11 @@ struct HashEntry{
             return true;
             
         return false;
+    }
+
+    __device__ __host__
+    void setFree(){ //when deleting entries make sure the positions do not get set to -0 otherwise change this to an epsilon or fabs
+        position(0) = position(1) = position(2) = 0;
     }
 };
 

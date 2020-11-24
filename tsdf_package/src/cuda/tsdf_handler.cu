@@ -50,7 +50,7 @@ void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d
   //   printf("%d  ", freeBlocks[i]);
   // }
   // printf("\n");
-  printf("Current Index: %d\n", blockHeap_d->currentIndex);
+  printf("Current Block Heap Free Index: %d\n", blockHeap_d->currentIndex);
 }
 
 /*
@@ -263,7 +263,7 @@ int getBlockPositionForBlockCoordinates(Vector3f & voxelBlockCoordinates, size_t
 
   //check the linked list if necessary
   while(hashEntry.offset!=0){
-    short offset = hashEntry.offset;
+    int offset = hashEntry.offset;
     currentGlobalIndex+=offset;
     if(currentGlobalIndex>=HASH_TABLE_SIZE){
       currentGlobalIndex %= HASH_TABLE_SIZE;
@@ -573,10 +573,10 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
 * determines if voxel is within publishing distance of drone
 */
 __device__
-inline bool withinPublishDistance(Vector3f & a, Vector3f & b){
+inline bool withinDistanceSquared(Vector3f & a, Vector3f & b, float thresholdDistanceSquared){
   Vector3f diff = b - a;
   float distanceSquared  = pow(diff(0), 2) + pow(diff(1), 2) + pow(diff(2), 2);
-  if(distanceSquared <= PUBLISH_DISTANCE_SQUARED){
+  if(distanceSquared <= thresholdDistanceSquared){
     return true;
   }
   return false;
@@ -610,7 +610,7 @@ void processOccupiedVoxelBlock(Vector3f * origin_transformed_d, Vector3f * occup
   
     Vector3f v(xCoord, yCoord, zCoord);
     //if within publish distance add voxel to list of occupied voxel and its position
-    if(withinPublishDistance(v, *origin_transformed_d)){
+    if(withinDistanceSquared(v, *origin_transformed_d, PUBLISH_DISTANCE_SQUARED)){
       int occupiedVoxelIndex = atomicAdd(&(*index), 1);
       if(occupiedVoxelIndex<OCCUPIED_VOXELS_SIZE){
         occupiedVoxels[occupiedVoxelIndex] = v;
@@ -642,6 +642,122 @@ void publishOccupiedVoxelsCuda(Vector3f * origin_transformed_d, HashTable * hash
   processOccupiedVoxelBlock<<<numBlocks,threadsPerCudaBlock>>>(origin_transformed_d, occupiedVoxels, index, sdfWeightVoxelVals_d, bottomLeftBlockPos, block);
   cdpErrchk(cudaPeekAtLastError());
   cudaFree(bottomLeftBlockPos);
+}
+
+/*
+* Remove blocks further than garbage collection distance away from lidar point
+*/
+__global__
+void garbageCollect(Vector3f * origin_transformed_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, int * removedBlocksCounts, Vector3f * linkedListDistantBlocks, int * linkedListDistantBlocksCount){
+  int threadIndex = blockIdx.x*threadsPerCudaBlock +threadIdx.x;
+  if(threadIndex >= HASH_TABLE_SIZE) return;
+  HashEntry * hashEntry = &hashTable_d->hashEntries[threadIndex];
+  if(hashEntry->isFree()){
+    return;
+  }
+  Vector3f blockPosition = hashEntry->position;
+  //check if point is far away from lidar to remove
+  if(!withinDistanceSquared(blockPosition, *origin_transformed_d, GARBAGE_COLLECT_DISTANCE_SQUARED))
+  {
+    size_t hashedBucketIndex = retrieveHashIndexFromPoint(blockPosition);
+    size_t threadBucketIndex = threadIndex / HASH_ENTRIES_PER_BUCKET;
+    if((hashedBucketIndex!=threadBucketIndex) || (hashEntry->offset > 0)){ // if hash entry is in linked list process later
+      int index = atomicAdd(&(*linkedListDistantBlocksCount), 1);
+      if(index<MAX_LINKED_LIST_BLOCKS){
+        linkedListDistantBlocks[index] = blockPosition;
+      }
+    }
+    else{
+      hashEntry->setFree();
+      int blockHeapPosition = hashEntry->pointer;
+      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
+      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+      atomicAdd(&(*removedBlocksCounts), 1);
+    }
+  }
+  hashEntry = NULL;
+  delete hashEntry;
+}
+
+/*
+* Remove blocks further than garbage collection distance away from lidar point whose hash entries are a part of a linked list
+*/
+__global__
+void linkedListGarbageCollect(HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * linkedListDistantBlocks, int * linkedListDistantBlocksCount){
+
+  HashEntry * hashEntries = hashTable_d->hashEntries;
+  HashEntry * currHashEntry = NULL;
+  HashEntry * prevHashEntry = NULL;
+  HashEntry * nextHashEntry = NULL;
+
+  for(int i=0;i<*linkedListDistantBlocksCount; ++i){ //loop through linked list points and process sequentially so no issues with having to lock other buckets
+    Vector3f removeBlockPosition = linkedListDistantBlocks[i];
+    int hashedBucketIndex = retrieveHashIndexFromPoint(removeBlockPosition);
+    //initialize to head of linked list
+    int currIndex = (hashedBucketIndex + 1) * HASH_ENTRIES_PER_BUCKET - 1;
+    currHashEntry = &hashEntries[currIndex];
+    prevHashEntry = NULL;
+
+    if(checkFloatingPointVectorsEqual(currHashEntry->position, removeBlockPosition, BLOCK_EPSILON)){ //if the hash entry is the head of the linked list
+      int prevHeadOffset = currHashEntry->offset;
+      int blockHeapPosition = currHashEntry->pointer;
+      int nextIndex = currIndex + prevHeadOffset;
+      if(nextIndex >= HASH_TABLE_SIZE){
+        nextIndex %= HASH_TABLE_SIZE;
+      }
+      nextHashEntry = &hashEntries[nextIndex];
+
+      Vector3f nextHashEntryPosition = nextHashEntry->position;
+
+      int nextHashEntryOffset = nextHashEntry->offset;
+      int nextHashEntryPointer = nextHashEntry->pointer;
+      currHashEntry->position = nextHashEntryPosition;
+      currHashEntry->pointer = nextHashEntryPointer;
+      if(nextHashEntryOffset!=0){
+        int newOffset = prevHeadOffset + nextHashEntryOffset;
+        currHashEntry->offset = newOffset;
+      }
+      else{
+        currHashEntry->offset = 0;
+      }
+      nextHashEntry->setFree();
+      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
+      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+      continue;
+    }
+
+    while(!checkFloatingPointVectorsEqual(currHashEntry->position, removeBlockPosition, BLOCK_EPSILON)){ //hash entry is a middle or end element of linked list
+      currIndex += (int) currHashEntry->offset;
+      if(currIndex >= HASH_TABLE_SIZE){
+        currIndex %= HASH_TABLE_SIZE;
+      }
+      prevHashEntry = currHashEntry;
+      currHashEntry = &hashEntries[currIndex];
+    }
+
+    int currOffset = currHashEntry->offset;
+    int prevHashOffset = prevHashEntry->offset;
+    int newOffset = prevHashOffset + currOffset;
+
+    if(currOffset > 0){
+      prevHashEntry->offset = newOffset;
+      currHashEntry->setFree();
+      int blockHeapPosition = currHashEntry->pointer;
+      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
+      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+    }
+    else{
+      prevHashEntry->offset = 0;
+      currHashEntry->setFree();
+      int blockHeapPosition = currHashEntry->pointer;
+      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
+      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+    }
+  }
+  currHashEntry = prevHashEntry = nextHashEntry = NULL;
+  delete(currHashEntry);
+  delete(prevHashEntry);
+  delete(nextHashEntry);
 }
 
 TSDFHandler::TSDFHandler(){
@@ -679,6 +795,8 @@ void TSDFHandler::processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ
   allocateVoxelBlocksAndUpdateVoxels(points_d, origin_transformed_d, pointcloud_size_d, pointcloud_size, hash_table_d, block_heap_d);
 
   publishOccupiedVoxels(origin_transformed_d, occupied_voxels_h, occupied_voxels_index, sdfWeightVoxelVals_h, hash_table_d, block_heap_d);
+
+  garbageCollectDistantBlocks(origin_transformed_d, hash_table_d, block_heap_d);
 
   cudaFree(pointcloud_size_d);
   cudaFree(points_d);
@@ -856,10 +974,61 @@ void TSDFHandler::publishOccupiedVoxels(Vector3f * origin_transformed_d, Vector3
 }
 
 /*
+* Remove blocks further than garbage collection distance so not keeping distant block data
+*/
+void TSDFHandler::garbageCollectDistantBlocks(Vector3f * origin_transformed_d, HashTable * hash_table_d, BlockHeap * block_heap_d){
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start);
+
+  int * removedBlocksCount_h = new int(0);
+  int * removedBlocksCount_d;
+  cudaMalloc(&removedBlocksCount_d, sizeof(int));
+  cudaMemcpy(removedBlocksCount_d, removedBlocksCount_h, sizeof(* removedBlocksCount_h), cudaMemcpyHostToDevice);
+
+  int * linkedListDistantBlocksCount_h = new int(0);
+  int * linkedListDistantBlocksCount_d;
+  cudaMalloc(&linkedListDistantBlocksCount_d, sizeof(int));
+  cudaMemcpy(linkedListDistantBlocksCount_d, linkedListDistantBlocksCount_h, sizeof(* linkedListDistantBlocksCount_h), cudaMemcpyHostToDevice);
+
+  Vector3f linkedListDistantBlocks_h[MAX_LINKED_LIST_BLOCKS];
+  Vector3f * linkedListDistantBlocks_d;
+  cudaMalloc(&linkedListDistantBlocks_d, sizeof(*linkedListDistantBlocks_h)*MAX_LINKED_LIST_BLOCKS);
+  cudaMemcpy(linkedListDistantBlocks_d, linkedListDistantBlocks_h, sizeof(*linkedListDistantBlocks_h)*MAX_LINKED_LIST_BLOCKS, cudaMemcpyHostToDevice);
+
+  int numCudaBlocks = HASH_TABLE_SIZE / threadsPerCudaBlock + 1;
+  garbageCollect<<<numCudaBlocks, threadsPerCudaBlock>>>(origin_transformed_d, hash_table_d, block_heap_d, removedBlocksCount_d, linkedListDistantBlocks_d, linkedListDistantBlocksCount_d);
+  gpuErrchk(cudaPeekAtLastError());
+  cudaDeviceSynchronize();
+  cudaMemcpy(removedBlocksCount_h, removedBlocksCount_d, sizeof(* removedBlocksCount_h), cudaMemcpyDeviceToHost);
+  cudaMemcpy(linkedListDistantBlocksCount_h, linkedListDistantBlocksCount_d, sizeof(* linkedListDistantBlocksCount_h), cudaMemcpyDeviceToHost);
+
+  linkedListGarbageCollect<<<1,1>>>(hash_table_d, block_heap_d, linkedListDistantBlocks_d, linkedListDistantBlocksCount_d);
+  gpuErrchk(cudaPeekAtLastError());
+  cudaDeviceSynchronize();
+  cudaMemcpy(linkedListDistantBlocksCount_h, linkedListDistantBlocksCount_d, sizeof(* linkedListDistantBlocksCount_h), cudaMemcpyDeviceToHost);
+
+  cudaEventRecord(stop);
+  cudaEventSynchronize(stop);
+  float milliseconds = 0;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  printf("Garbage Collection Duration: %f\n", milliseconds);
+
+  printf("Total Blocks Removed: %d\n", *removedBlocksCount_h + *linkedListDistantBlocksCount_h);
+
+  delete removedBlocksCount_h;
+  delete linkedListDistantBlocksCount_h;
+  cudaFree(removedBlocksCount_d);
+  cudaFree(linkedListDistantBlocksCount_d);
+  cudaFree(linkedListDistantBlocks_d);
+}
+
+/*
 * Initialize device global variables
 */
 __global__
-void initializeGlobalVarsCuda(float * voxel_size_d, float * truncation_distance_d, float * max_weight_d, float * publish_distance_squared_d){
+void initializeGlobalVarsCuda(float * voxel_size_d, float * truncation_distance_d, float * max_weight_d, float * publish_distance_squared_d, float * garbage_collect_distance_squared_d){
   VOXEL_SIZE = * voxel_size_d;
   HALF_VOXEL_SIZE = VOXEL_SIZE / 2;
   VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_SIDE;
@@ -869,6 +1038,7 @@ void initializeGlobalVarsCuda(float * voxel_size_d, float * truncation_distance_
   TRUNCATION_DISTANCE = * truncation_distance_d;
   MAX_WEIGHT = * max_weight_d;
   PUBLISH_DISTANCE_SQUARED = * publish_distance_squared_d;
+  GARBAGE_COLLECT_DISTANCE_SQUARED = * garbage_collect_distance_squared_d;
 }
 
 /*
@@ -876,7 +1046,7 @@ void initializeGlobalVarsCuda(float * voxel_size_d, float * truncation_distance_
 */
 void initializeGlobalVars(Params params){
   initializeGlobalVarsCuda<<<1,1>>>(params.voxel_size_param_d, params.truncation_distance_param_d, params.max_weight_param_d, 
-    params.publish_distance_squared_param_d);
+    params.publish_distance_squared_param_d, params.garbage_collect_distance_squared_param_d);
   gpuErrchk( cudaPeekAtLastError() );
   cudaDeviceSynchronize();
 }
