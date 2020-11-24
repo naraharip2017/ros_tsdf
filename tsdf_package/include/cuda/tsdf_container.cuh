@@ -19,7 +19,7 @@ const int NUM_BUCKETS = 1000000;
 __constant__
 const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS;
 __constant__
-const int NUM_HEAP_BLOCKS = 20000;
+const int NUM_HEAP_BLOCKS = 40000;
 __constant__
 const int PRIME_ONE = 73856093;
 __constant__
