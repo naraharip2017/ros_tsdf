@@ -586,7 +586,7 @@ inline bool withinDistanceSquared(Vector3f & a, Vector3f & b, float thresholdDis
 * Get voxels that are occupied in a voxel block
 */
 __global__
-void processOccupiedVoxelBlock(Vector3f * origin_transformed_d, Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d, Vector3f * position, VoxelBlock * block){
+void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d, Vector3f * position, VoxelBlock * block){
   int threadIndex = blockIdx.x*threadsPerCudaBlock + threadIdx.x;
   if(threadIndex >= VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE){
     return;
@@ -610,12 +610,10 @@ void processOccupiedVoxelBlock(Vector3f * origin_transformed_d, Vector3f * occup
   
     Vector3f v(xCoord, yCoord, zCoord);
     //if within publish distance add voxel to list of occupied voxel and its position
-    if(withinDistanceSquared(v, *origin_transformed_d, PUBLISH_DISTANCE_SQUARED)){
-      int occupiedVoxelIndex = atomicAdd(&(*index), 1);
-      if(occupiedVoxelIndex<OCCUPIED_VOXELS_SIZE){
-        occupiedVoxels[occupiedVoxelIndex] = v;
-        sdfWeightVoxelVals_d[occupiedVoxelIndex] = voxel;
-      }
+    int occupiedVoxelIndex = atomicAdd(&(*index), 1);
+    if(occupiedVoxelIndex<OCCUPIED_VOXELS_SIZE){
+      occupiedVoxels[occupiedVoxelIndex] = v;
+      sdfWeightVoxelVals_d[occupiedVoxelIndex] = voxel;
     }
   }
 }
@@ -631,17 +629,20 @@ void publishOccupiedVoxelsCuda(Vector3f * origin_transformed_d, HashTable * hash
   if(hashEntry.isFree()){
     return;
   }
-  int pointer = hashEntry.pointer;
-  Vector3f * bottomLeftBlockPos = new Vector3f(hashEntry.position(0) - HALF_VOXEL_BLOCK_SIZE, 
-  hashEntry.position(1)- HALF_VOXEL_BLOCK_SIZE,
-  hashEntry.position(2)- HALF_VOXEL_BLOCK_SIZE);
-
-  VoxelBlock * block = &(blockHeap_d->blocks[pointer]);
-  int size = VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE;
-  int numBlocks = size/threadsPerCudaBlock + 1;
-  processOccupiedVoxelBlock<<<numBlocks,threadsPerCudaBlock>>>(origin_transformed_d, occupiedVoxels, index, sdfWeightVoxelVals_d, bottomLeftBlockPos, block);
-  cdpErrchk(cudaPeekAtLastError());
-  cudaFree(bottomLeftBlockPos);
+  Vector3f blockPos = hashEntry.position;
+  if(withinDistanceSquared(blockPos, *origin_transformed_d, PUBLISH_DISTANCE_SQUARED)){
+    int pointer = hashEntry.pointer;
+    Vector3f * bottomLeftBlockPos = new Vector3f(blockPos(0) - HALF_VOXEL_BLOCK_SIZE, 
+    blockPos(1)- HALF_VOXEL_BLOCK_SIZE,
+    blockPos(2)- HALF_VOXEL_BLOCK_SIZE);
+  
+    VoxelBlock * block = &(blockHeap_d->blocks[pointer]);
+    int size = VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE;
+    int numBlocks = size/threadsPerCudaBlock + 1;
+    processOccupiedVoxelBlock<<<numBlocks,threadsPerCudaBlock>>>(occupiedVoxels, index, sdfWeightVoxelVals_d, bottomLeftBlockPos, block);
+    cdpErrchk(cudaPeekAtLastError());
+    cudaFree(bottomLeftBlockPos);
+  }
 }
 
 /*
