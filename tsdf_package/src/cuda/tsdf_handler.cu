@@ -70,29 +70,17 @@ float FloorFun(float x, float scale){
 }
 
 /*
-* Given world point return block center
+* Given world point return center of volume given by volume_size
 */
 __device__
-Vector3f GetVoxelBlockCenterFromPoint(Vector3f point){
-  float scale = 1 / VOXEL_BLOCK_SIZE;
-  Vector3f blockCenter;
-  blockCenter(0) = FloorFun(point(0), scale) + HALF_VOXEL_BLOCK_SIZE;
-  blockCenter(1) = FloorFun(point(1), scale) + HALF_VOXEL_BLOCK_SIZE;
-  blockCenter(2) = FloorFun(point(2), scale) + HALF_VOXEL_BLOCK_SIZE;
-  return blockCenter;
-}
-
-/*
-* Given world point return voxel center
-*/
-__device__
-Vector3f GetVoxelCenterFromPoint(Vector3f point){
-  float scale = 1 / VOXEL_SIZE;
-  Vector3f voxelCenter;
-  voxelCenter(0) = FloorFun(point(0), scale) + HALF_VOXEL_SIZE;
-  voxelCenter(1) = FloorFun(point(1), scale) + HALF_VOXEL_SIZE;
-  voxelCenter(2) = FloorFun(point(2), scale) + HALF_VOXEL_SIZE;
-  return voxelCenter;
+Vector3f getVolumeCenterFromPoint(Vector3f point, float volume_size){
+  float scale = 1/volume_size;
+  float half_volume_size = volume_size / 2;
+  Vector3f volume_center;
+  volume_center(0) = FloorFun(point(0), scale) + half_volume_size;
+  volume_center(1) = FloorFun(point(1), scale) + half_volume_size;
+  volume_center(2) = FloorFun(point(2), scale) + half_volume_size;
+  return volume_center;
 }
 
 /*
@@ -113,10 +101,10 @@ bool checkFloatingPointVectorsEqual(Vector3f A, Vector3f B, float epsilon){
 * truncation_start will be closer to origin
 */
 __device__
-inline void getTruncationLineEndPoints(pcl::PointXYZ & point_d, Vector3f * origin_transformed_d, Vector3f & truncation_start, Vector3f & truncation_end, Vector3f & u, Vector3f & v){
-  u = *origin_transformed_d;
+inline void getTruncationLineEndPoints(pcl::PointXYZ & point_d, Vector3f * origin_transformed_d, Vector3f & truncation_start, Vector3f & truncation_end){
+  Vector3f u = *origin_transformed_d;
   Vector3f point_d_vector(point_d.x, point_d.y, point_d.z);
-  v = point_d_vector - u; //direction
+  Vector3f v = point_d_vector - u; //direction
   //equation of line is u+tv
   float vMag = sqrt(pow(v(0), 2) + pow(v(1),2) + pow(v(2), 2));
   Vector3f v_normalized = v / vMag;
@@ -143,22 +131,43 @@ __device__
 inline void traverseVolume(Vector3f & truncation_start_vol, Vector3f & truncation_end_vol, const float & volume_size, Vector3f & u, Vector3f & v, Vector3f * traversed_vols, int * traversed_vols_size){
   float half_volume_size = volume_size / 2;
   const float epsilon = volume_size / 4;
+  const float volume_size_plus_epsilon = volume_size + epsilon;
+  const float volume_size_minus_epsilon = volume_size - epsilon;
   float stepX = v(0) > 0 ? volume_size : -1 * volume_size;
   float stepY = v(1) > 0 ? volume_size : -1 * volume_size;
   float stepZ = v(2) > 0 ? volume_size : -1 * volume_size;
-  float tMaxX = fabs(v(0) < 0 ? (truncation_start_vol(0) - half_volume_size - u(0)) / v(0) : (truncation_start_vol(0) + half_volume_size - u(0)) / v(0));
-  float tMaxY = fabs(v(1) < 0 ? (truncation_start_vol(1) - half_volume_size - u(1)) / v(1) : (truncation_start_vol(1) + half_volume_size - u(1)) / v(1));
-  float tMaxZ = fabs(v(2) < 0 ? (truncation_start_vol(2) - half_volume_size - u(2)) / v(2) : (truncation_start_vol(2) + half_volume_size - u(2)) / v(2));
+  Vector3f truncation_vol_start_center = getVolumeCenterFromPoint(truncation_start_vol, volume_size);
+  float tMaxX = fabs(v(0) < 0 ? (truncation_vol_start_center(0) - half_volume_size - u(0)) / v(0) : (truncation_vol_start_center(0) + half_volume_size - u(0)) / v(0));
+  float tMaxY = fabs(v(1) < 0 ? (truncation_vol_start_center(1) - half_volume_size - u(1)) / v(1) : (truncation_vol_start_center(1) + half_volume_size - u(1)) / v(1));
+  float tMaxZ = fabs(v(2) < 0 ? (truncation_vol_start_center(2) - half_volume_size - u(2)) / v(2) : (truncation_vol_start_center(2) + half_volume_size - u(2)) / v(2));
   float tDeltaX = fabs(volume_size / v(0));
   float tDeltaY = fabs(volume_size / v(1));
   float tDeltaZ = fabs(volume_size / v(2));
   Vector3f current_vol(truncation_start_vol(0), truncation_start_vol(1), truncation_start_vol(2));
+  Vector3f current_vol_center = getVolumeCenterFromPoint(current_vol, volume_size);
+  Vector3f truncation_vol_end_center = getVolumeCenterFromPoint(truncation_end_vol, volume_size);
 
+  // printf("-----------------------------------------------------\n");
+  // printf("truncation_vol_start_center: (%f,%f,%f)\n", truncation_vol_start_center(0), truncation_vol_start_center(1), truncation_vol_start_center(2));
+  // printf("truncation_vol_end_center: (%f,%f,%f)\n", truncation_vol_end_center(0), truncation_vol_end_center(1), truncation_vol_end_center(2));
+  // printf("-----------------------------------------------------\n");
   int insert_index;
-  while(!checkFloatingPointVectorsEqual(current_vol, truncation_end_vol, epsilon)){
+  int current_index = 0;
+  while(!checkFloatingPointVectorsEqual(current_vol_center, truncation_vol_end_center, epsilon)){
     //add traversed volume to list of traversed volume and update size atomically
     insert_index = atomicAdd(&(*traversed_vols_size), 1);
-    traversed_vols[insert_index] = current_vol;
+    traversed_vols[insert_index] = current_vol_center;
+    // printf("current_vol: (%f,%f,%f)\n", current_vol(0), current_vol(1), current_vol(2));
+    // printf("current_vol_center: (%f,%f,%f)\n", current_vol_center(0), current_vol_center(1), current_vol_center(2));
+    // printf("tMaxX: %f, tMaxy: %f, tMaxZ:%f\n", tMaxX, tMaxY, tMaxZ);
+    // printf("deltaX: %f, deltaY: %f, deltaZ:%f\n", tDeltaX, tDeltaY, tDeltaZ);
+    current_index ++;
+    if(current_index > 30){
+      printf("current_vol_center: (%f,%f,%f), end_center: (%f,%f,%f), start_center: (%f,%f,%f), end: (%f,%f,%f), start: (%f,%f,%f)\n", current_vol_center(0), current_vol_center(1), current_vol_center(2), truncation_vol_end_center(0), truncation_vol_end_center(1), truncation_vol_end_center(2), truncation_vol_start_center(0), truncation_vol_start_center(1), truncation_vol_start_center(2), truncation_end_vol(0), truncation_end_vol(1), truncation_end_vol(2), truncation_start_vol(0), truncation_start_vol(1), truncation_start_vol(2));
+
+      break;
+    }
+
     if(tMaxX < tMaxY){
       if(tMaxX < tMaxZ)
       {
@@ -212,11 +221,25 @@ inline void traverseVolume(Vector3f & truncation_start_vol, Vector3f & truncatio
         tMaxZ += tDeltaZ;
       }
     } 
+    Vector3f temp_current_vol_center = current_vol_center;
+    current_vol_center = getVolumeCenterFromPoint(current_vol, volume_size);
+    Vector3f diff;
+    diff(0) = fabs(temp_current_vol_center(0) - current_vol_center(0));
+    diff(1) = fabs(temp_current_vol_center(1) - current_vol_center(1));
+    diff(2) = fabs(temp_current_vol_center(2) - current_vol_center(2));
+    // printf("diff: (%f,%f,%f)\n",diff(0), diff(1), diff(2));
+    if((diff(0) < volume_size_minus_epsilon && diff(1) < volume_size_minus_epsilon && diff(2) < volume_size_minus_epsilon) || (diff(0) > volume_size_plus_epsilon || diff(1) > volume_size_plus_epsilon || diff(2) > volume_size_plus_epsilon)){
+      return;
+    }
+    // printf("-----------------------------------------------------\n");
   }      
 
   //add traversed volume to list of traversed volume and update size atomically
   insert_index = atomicAdd(&(*traversed_vols_size), 1);
-  traversed_vols[insert_index] = current_vol;
+  traversed_vols[insert_index] = current_vol_center;
+  // printf("current_vol: (%f,%f,%f)\n", current_vol(0), current_vol(1), current_vol(2));
+  // printf("current_vol_center: (%f,%f,%f)\n", current_vol_center(0), current_vol_center(1), current_vol_center(2));
+
 }
 
 /*
@@ -231,15 +254,13 @@ void getVoxelBlocksForPoint(pcl::PointXYZ * points_d, Vector3f * pointCloudVoxel
   pcl::PointXYZ point_d = points_d[threadIndex];
   Vector3f truncation_start;
   Vector3f truncation_end;
-  Vector3f u;
-  Vector3f v;
 
-  getTruncationLineEndPoints(point_d, origin_transformed_d, truncation_start, truncation_end, u, v);
+  getTruncationLineEndPoints(point_d, origin_transformed_d, truncation_start, truncation_end);
+  //equation of line is u+tv
+  Vector3f u = truncation_start;
+  Vector3f v = truncation_end - truncation_start;
 
-  Vector3f truncation_start_block = GetVoxelBlockCenterFromPoint(truncation_start);
-  Vector3f truncation_end_block = GetVoxelBlockCenterFromPoint(truncation_end);
-
-  traverseVolume(truncation_start_block, truncation_end_block, VOXEL_BLOCK_SIZE, u, v, pointCloudVoxelBlocks_d, pointer_d);
+  traverseVolume(truncation_start, truncation_end, VOXEL_BLOCK_SIZE, u, v, pointCloudVoxelBlocks_d, pointer_d);
   return;
 }
 
@@ -445,7 +466,7 @@ size_t getLocalVoxelIndex(Vector3f diff){
 * return magnitude of vector
 */
 __device__
-float getMagnitude(Vector3f vector){
+inline float getMagnitude(Vector3f vector){
   return sqrt(pow(vector(0),2) + pow(vector(1),2) + pow(vector(2),2));
 }
 
@@ -453,7 +474,7 @@ float getMagnitude(Vector3f vector){
 * return dot product of two vectors
 */
 __device__
-float dotProduct(Vector3f a, Vector3f b){
+inline float dotProduct(Vector3f a, Vector3f b){
   return a(0)*b(0) + a(1)*b(1) + a(2)*b(2);
 }
 
@@ -462,17 +483,22 @@ float dotProduct(Vector3f a, Vector3f b){
 * http://helenol.github.io/publications/iros_2017_voxblox.pdf for more info
 */
 __device__
-float getDistanceUpdate(Vector3f voxelCoordinates, Vector3f point_d, Vector3f origin){
-//x:center of current voxel   p:position of lidar point   s:sensor origin
-Vector3f lidarOriginDiff = point_d - origin; //p-s
-Vector3f lidarVoxelDiff = point_d - voxelCoordinates; //p-x
-float magnitudeLidarVoxelDiff = getMagnitude(lidarVoxelDiff);
-float dotProd = dotProduct(lidarOriginDiff, lidarVoxelDiff);
-if(dotProd < 0){
-  magnitudeLidarVoxelDiff *=-1;
+inline float getDistanceUpdate(Vector3f voxelCoordinates, Vector3f point_d, Vector3f origin){
+  //x:center of current voxel   p:position of lidar point   s:sensor origin
+  Vector3f lidarOriginDiff = point_d - origin; //p-s
+  Vector3f lidarVoxelDiff = point_d - voxelCoordinates; //p-x
+  float magnitudeLidarVoxelDiff = getMagnitude(lidarVoxelDiff);
+  float dotProd = dotProduct(lidarOriginDiff, lidarVoxelDiff);
+  if(dotProd < 0){
+    magnitudeLidarVoxelDiff *=-1;
+  }
+
+  return magnitudeLidarVoxelDiff;
 }
 
-return magnitudeLidarVoxelDiff;
+__device__
+inline float getWeightUpdate(float distance){
+  return 1/(fabs(distance) + 1);
 }
 
 /*
@@ -485,7 +511,7 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
     return;
   }
   Vector3f voxelCoordinates = voxels[threadIndex];
-  Vector3f voxelBlockCoordinates = GetVoxelBlockCenterFromPoint(voxelCoordinates);
+  Vector3f voxelBlockCoordinates = getVolumeCenterFromPoint(voxelCoordinates, VOXEL_BLOCK_SIZE);
 
   size_t bucketIndex = retrieveHashIndexFromPoint(voxelBlockCoordinates);
   size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
@@ -504,8 +530,8 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
   Voxel* voxel = &(block->voxels[localVoxelIndex]);
   int * mutex = &(block->mutex[localVoxelIndex]);
 
-  float weight = 1; //constant weighting used
   float distance = getDistanceUpdate(voxelCoordinates, *point_d, *origin);
+  float weight = getWeightUpdate(distance);
   float weightTimesDistance = weight * distance;
 
   //get lock for voxel
@@ -522,7 +548,6 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
       voxel->sdf = newDistance;
       newWeight = min(newWeight, MAX_WEIGHT);
       voxel->weight = newWeight;
-      // printf("voxel coords: (%f, %f, %f) with sdf: %f with weight: %f\n", voxelCoordinates(0),voxelCoordinates(1), voxelCoordinates(2), voxel->sdf, voxel->weight);
       //free voxel
       atomicExch(mutex, 0);
     }
@@ -535,25 +560,34 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
 __global__
 void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, int * size_d){
   int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
+  // if(threadIndex>0){
+  //   return;
+  // }
   if(threadIndex>=*size_d){
-  return;
+    return;
   }
   pcl::PointXYZ point_d = points_d[threadIndex];
   Vector3f truncation_start;
   Vector3f truncation_end;
-  Vector3f u;
-  Vector3f v;
 
-  getTruncationLineEndPoints(point_d, origin_transformed_d, truncation_start, truncation_end, u, v);
 
-  Vector3f truncation_start_voxel = GetVoxelCenterFromPoint(truncation_start);
-  Vector3f truncation_end_voxel = GetVoxelCenterFromPoint(truncation_end);
+  getTruncationLineEndPoints(point_d, origin_transformed_d, truncation_start, truncation_end);
+  //equation of line is u+tv
+  // truncation_start(0) = 127.499992;
+  // truncation_start(1) = 8.746421;
+  // truncation_start(2) = -2.210701;
+  // truncation_end(0) = 129.193176;
+  // truncation_end(1) = 15.148551;
+  // truncation_end(2) = 2.277709;
+  Vector3f u = truncation_start;
+  Vector3f v = truncation_end - truncation_start;
 
   //get list of voxels traversed 
-  Vector3f * voxels = new Vector3f[200]; //todo: hardcoded -> set in terms of truncation distance and voxel size
+  Vector3f * voxels = new Vector3f[100]; //todo: hardcoded -> set in terms of truncation distance and voxel size
   int * size = new int(0);
 
-  traverseVolume(truncation_start_voxel, truncation_end_voxel, VOXEL_SIZE, u, v, voxels, size);
+  traverseVolume(truncation_start, truncation_end, VOXEL_SIZE, u, v, voxels, size);
+  
 
   Vector3f * lidarPoint = new Vector3f(point_d.x, point_d.y, point_d.z);
 
@@ -755,10 +789,11 @@ void linkedListGarbageCollect(HashTable * hashTable_d, BlockHeap * blockHeap_d, 
       blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
     }
   }
-  currHashEntry = prevHashEntry = nextHashEntry = NULL;
+  currHashEntry = prevHashEntry = nextHashEntry = hashEntries = NULL;
   delete(currHashEntry);
   delete(prevHashEntry);
   delete(nextHashEntry);
+  delete(hashEntries);
 }
 
 TSDFHandler::TSDFHandler(){
@@ -811,7 +846,8 @@ void TSDFHandler::processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ
 void TSDFHandler::allocateVoxelBlocksAndUpdateVoxels(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d, int * pointcloud_size_d, int pointcloud_size, HashTable * hash_table_d, BlockHeap * block_heap_d){
     //TODO: FIX
   // int maxBlocksPerPoint = ceil(pow(TRUNCATION_DISTANCE,3) / pow(VOXEL_BLOCK_SIZE, 3));
-  int maxBlocks = 10 * pointcloud_size; //the max number of voxel blocks that are allocated per point cloud frame
+  //the max number of voxel blocks that are allocated per point cloud frame
+  int maxBlocks = 100 * pointcloud_size; //todo: hardcoded
   Vector3f pointcloud_voxel_blocks_h[maxBlocks];
   Vector3f * pointcloud_voxel_blocks_d;
   int * pointcloud_voxel_blocks_h_index = new int(0); //keep track of number of voxel blocks allocated
@@ -1015,7 +1051,7 @@ void TSDFHandler::garbageCollectDistantBlocks(Vector3f * origin_transformed_d, H
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   printf("Garbage Collection Duration: %f\n", milliseconds);
-
+  // printf("Linked List Blocks Removed: %d\n", *linkedListDistantBlocksCount_h);
   printf("Total Blocks Removed: %d\n", *removedBlocksCount_h + *linkedListDistantBlocksCount_h);
 
   delete removedBlocksCount_h;

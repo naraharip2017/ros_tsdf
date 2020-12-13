@@ -13,10 +13,10 @@
 #include "params.hpp"
 
 __constant__
-const int OCCUPIED_VOXELS_SIZE = 100000; //if holes appearing in visualization, increase this value
+const int OCCUPIED_VOXELS_SIZE = 500000; //if holes appearing in visualization, increase this value
 
 __constant__
-const int MAX_LINKED_LIST_BLOCKS = 1000;
+const int MAX_LINKED_LIST_BLOCKS = 1000; //todo: hardcoded
 
 __device__ float VOXEL_SIZE; //param
 __device__ float HALF_VOXEL_SIZE;

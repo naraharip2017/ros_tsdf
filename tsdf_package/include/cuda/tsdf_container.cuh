@@ -11,7 +11,7 @@ typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
 //todo: make params - need to figure out how to allocate array of objects with dynamic pointers
 __constant__
-const int VOXEL_PER_SIDE = 2;
+const int VOXEL_PER_SIDE = 8;
 __constant__
 const int HASH_ENTRIES_PER_BUCKET = 2;
 __constant__
@@ -19,7 +19,7 @@ const int NUM_BUCKETS = 1000000;
 __constant__
 const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS;
 __constant__
-const int NUM_HEAP_BLOCKS = 40000;
+const int NUM_HEAP_BLOCKS = 500000;
 __constant__
 const int PRIME_ONE = 73856093;
 __constant__

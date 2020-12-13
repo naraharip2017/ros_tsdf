@@ -69,10 +69,10 @@ int main(int argc, char ** argv)
   auto node = rclcpp::Node::make_shared("tsdf_node");
 
   node->declare_parameter<float>("voxel_size", .5);
-  node->declare_parameter<float>("truncation_distance", .1);
+  node->declare_parameter<float>("truncation_distance", 4.0);
   node->declare_parameter<float>("max_weight", 10000.0);
-  node->declare_parameter<float>("publish_distance_squared", 425.0);
-  node->declare_parameter<float>("garbage_collect_distance_squared", 2500.0);
+  node->declare_parameter<float>("publish_distance_squared", 2500.00);
+  node->declare_parameter<float>("garbage_collect_distance_squared", 250000.0);
   node->declare_parameter<bool>("visualize_published_voxels", false);
   float voxel_size, max_weight, publish_distance_squared, truncation_distance, garbage_collect_distance_squared;
   bool visualize_published_voxels;
