@@ -2,3 +2,4 @@
 uint32 size
 tsdf_package_msgs/Voxel[] voxels
 float32 truncation_distance
+float32 voxel_size

@@ -98,7 +98,7 @@ int main(int argc, char ** argv)
   tsdfHandler = new TSDFHandler();
   //source frame set to lidar frame
   transformer = new Transformer("drone_1/LidarCustom", clock_);
-  publisher = new Publisher(vis_pub, tsdf_pub, visualize_published_voxels, publish_distance_squared, truncation_distance, clock_, occupiedVoxels, sdfWeightVoxelVals);
+  publisher = new Publisher(vis_pub, tsdf_pub, visualize_published_voxels, publish_distance_squared, truncation_distance, voxel_size, clock_, occupiedVoxels, sdfWeightVoxelVals);
 
   rclcpp::spin(node);
 

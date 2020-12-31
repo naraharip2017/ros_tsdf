@@ -90,19 +90,21 @@ void Publisher::publish(int & numVoxels){
 
     message.size = message.voxels.size();
     message.truncation_distance = truncationDistance;
+    message.voxel_size = voxel_size;
     tsdf_pub->publish(message);
   }
 }
 
 Publisher::Publisher(rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub, 
 rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub, 
-bool & visualizePublishedVoxels, float & publishDistanceSquared, float & truncationDistance, rclcpp::Clock::SharedPtr clock,
+bool & visualizePublishedVoxels, float & publishDistanceSquared, float & truncationDistance, float & voxel_size, rclcpp::Clock::SharedPtr clock,
 Vector3f * occupiedVoxels, Voxel * sdfWeightVoxelVals){
   this->vis_pub = vis_pub;
   this->tsdf_pub = tsdf_pub;
   this->visualizePublishedVoxels = visualizePublishedVoxels;
   this->publishDistanceSquared = publishDistanceSquared;
   this->truncationDistance = truncationDistance;
+  this->voxel_size = voxel_size;
   clock_ = clock;
   this->occupiedVoxels = occupiedVoxels;
   this->sdfWeightVoxelVals = sdfWeightVoxelVals;

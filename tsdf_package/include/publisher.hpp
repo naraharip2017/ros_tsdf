@@ -15,7 +15,7 @@ public:
     Publisher(rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub, 
         rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub, 
         bool & visualizePublishedVoxels, float & publishDistanceSquared, float & truncationDistance,
-        rclcpp::Clock::SharedPtr clock, Vector3f * occupiedVoxels, Voxel * sdfWeightVoxelVals);
+        float & voxel_size, rclcpp::Clock::SharedPtr clock, Vector3f * occupiedVoxels, Voxel * sdfWeightVoxelVals);
     
     void publish(int & numVoxels);
 private:
@@ -27,6 +27,7 @@ private:
     bool visualizePublishedVoxels;
     float publishDistanceSquared;
     float truncationDistance;
+    float voxel_size;
     rclcpp::Clock::SharedPtr clock_;  
     Vector3f * occupiedVoxels;
     Voxel *  sdfWeightVoxelVals;
