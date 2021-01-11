@@ -17,9 +17,6 @@ Publisher * publisher;
 Vector3f origin_transformed;
 Vector3f * origin_transformed_h = &origin_transformed;
 
-rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr vis_pub;
-rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub;
-
 //keep track of average run time
 double average, count = 0.0;
 
@@ -87,18 +84,21 @@ int main(int argc, char ** argv)
   initializeGlobalVars(params);
 
   clock_ = node->get_clock();
+
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
     "/airsim_node/drone_1/lidar/LidarCustom", 500, callback
   ); 
 
-  vis_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("occupiedVoxels", 100);
+  auto tsdf_occupied_voxels_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("tsdf_occupied_voxels", 10);
 
-  tsdf_pub = node->create_publisher<tsdf_package_msgs::msg::Tsdf>("tsdf", 10);
+  auto tsdf_occupied_voxels_pc_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>("tsdf_occupied_voxels_pointcloud", 10);
+
+  auto tsdf_pub = node->create_publisher<tsdf_package_msgs::msg::Tsdf>("tsdf", 10);
 
   tsdfHandler = new TSDFHandler();
   //source frame set to lidar frame
   transformer = new Transformer("drone_1/LidarCustom", clock_);
-  publisher = new Publisher(vis_pub, tsdf_pub, visualize_published_voxels, publish_distance_squared, truncation_distance, voxel_size, clock_, occupiedVoxels, sdfWeightVoxelVals);
+  publisher = new Publisher(tsdf_occupied_voxels_pub, tsdf_occupied_voxels_pc_pub, tsdf_pub, visualize_published_voxels, publish_distance_squared, truncation_distance, voxel_size, clock_, occupiedVoxels, sdfWeightVoxelVals);
 
   rclcpp::spin(node);
 

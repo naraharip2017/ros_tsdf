@@ -33,6 +33,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(tsdf_package_msgs REQUIRED)
 
+#todo change to library and target link libraries
 add_executable(tsdf_node 
   src/tsdf_node.cpp
   src/transformer.cpp
