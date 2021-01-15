@@ -62,6 +62,7 @@ int main(int argc, char ** argv)
 {
 
   rclcpp::init(argc, argv);
+  //sleep(10);
 
   auto node = rclcpp::Node::make_shared("tsdf_node");
 
@@ -71,14 +72,17 @@ int main(int argc, char ** argv)
   node->declare_parameter<float>("publish_distance_squared", 2500.00);
   node->declare_parameter<float>("garbage_collect_distance_squared", 250000.0);
   node->declare_parameter<bool>("visualize_published_voxels", false);
+  node->declare_parameter<std::string>("lidar_frame", "lidar");
   float voxel_size, max_weight, publish_distance_squared, truncation_distance, garbage_collect_distance_squared;
   bool visualize_published_voxels;
+  std::string lidar_frame;
   node->get_parameter("voxel_size", voxel_size);
   node->get_parameter("truncation_distance", truncation_distance);
   node->get_parameter("max_weight", max_weight);
   node->get_parameter("publish_distance_squared", publish_distance_squared);
   node->get_parameter("visualize_published_voxels", visualize_published_voxels);
   node->get_parameter("garbage_collect_distance_squared", garbage_collect_distance_squared);
+  node->get_parameter("lidar_frame", lidar_frame);
 
   Params params(voxel_size, truncation_distance, max_weight, publish_distance_squared, garbage_collect_distance_squared);
   initializeGlobalVars(params);
@@ -86,7 +90,7 @@ int main(int argc, char ** argv)
   clock_ = node->get_clock();
 
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "/airsim_node/drone_1/lidar/LidarCustom", 500, callback
+    "lidar", 500, callback
   ); 
 
   auto tsdf_occupied_voxels_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("tsdf_occupied_voxels", 10);
@@ -97,7 +101,7 @@ int main(int argc, char ** argv)
 
   tsdfHandler = new TSDFHandler();
   //source frame set to lidar frame
-  transformer = new Transformer("drone_1/LidarCustom", clock_);
+  transformer = new Transformer(lidar_frame, clock_);
   publisher = new Publisher(tsdf_occupied_voxels_pub, tsdf_occupied_voxels_pc_pub, tsdf_pub, visualize_published_voxels, publish_distance_squared, truncation_distance, voxel_size, clock_, occupiedVoxels, sdfWeightVoxelVals);
 
   rclcpp::spin(node);

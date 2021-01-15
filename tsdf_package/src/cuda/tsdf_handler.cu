@@ -535,6 +535,8 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
   float weightTimesDistance = weight * distance;
 
   //get lock for voxel
+  // TODO: Remove infinite loop hack
+  int i = 0;
   bool updatedVoxel = false;
   while(!updatedVoxel){
     //get lock for voxel
@@ -550,6 +552,12 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
       voxel->weight = newWeight;
       //free voxel
       atomicExch(mutex, 0);
+    }
+    else{
+      i++;
+      if(i>500){
+        printf("stuck\n");
+      }
     }
   }
 }

@@ -39,11 +39,11 @@ void Publisher::publishWithVisualization(int & numVoxels){
       Voxel voxel = sdfWeightVoxelVals[i];
       geometry_msgs::msg::Point p;
       //although in ned frame this swaps the points to enu for easier visualization in rviz
-      p.x = v(1);
-      p.y = v(0);
-      p.z = v(2)*-1;
+      p.x = v(0);
+      p.y = v(1);
+      p.z = v(2);
 
-      pcl::PointXYZ point(v(1),v(0),v(2)*-1);
+      pcl::PointXYZ point(v(0),v(1),v(2));
       pointcloud.push_back(point);
 
       auto msgVoxel = tsdf_package_msgs::msg::Voxel();
