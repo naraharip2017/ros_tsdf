@@ -13,7 +13,7 @@
 #include "params.hpp"
 
 __constant__
-const int OCCUPIED_VOXELS_SIZE = 500000; //if holes appearing in visualization, increase this value
+const int OCCUPIED_VOXELS_SIZE = 400000; //if holes appearing in visualization, increase this value
 
 __constant__
 const int MAX_LINKED_LIST_BLOCKS = 1000; //todo: hardcoded
@@ -60,6 +60,7 @@ public:
 private:
     TSDFContainer * tsdfContainer; 
     Vector3f * occupied_voxels_d;
+    Voxel * sdfWeightVoxelVals_d;
 };
 
 void initializeGlobalVars(Params params);

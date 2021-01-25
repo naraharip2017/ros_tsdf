@@ -806,10 +806,14 @@ void linkedListGarbageCollect(HashTable * hashTable_d, BlockHeap * blockHeap_d, 
 
 TSDFHandler::TSDFHandler(){
   tsdfContainer = new TSDFContainer();
+  cudaMalloc(&occupied_voxels_d, sizeof(Vector3f)*OCCUPIED_VOXELS_SIZE);
+  cudaMalloc(&sdfWeightVoxelVals_d, sizeof(Voxel)*OCCUPIED_VOXELS_SIZE);
 }
 
 TSDFHandler::~TSDFHandler(){
   free(tsdfContainer);
+  cudaFree(occupied_voxels_d);
+  cudaFree(sdfWeightVoxelVals_d);
 }
 
 /*
@@ -825,13 +829,19 @@ void TSDFHandler::processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ
   int * pointcloud_size_d;
 
   cudaMalloc(&points_d, sizeof(*points_h)*pointcloud_size);
+  gpuErrchk(cudaPeekAtLastError());
   cudaMemcpy(points_d, points_h, sizeof(*points_h)*pointcloud_size, cudaMemcpyHostToDevice);
+  gpuErrchk(cudaPeekAtLastError());
   cudaMalloc(&pointcloud_size_d, sizeof(int));
+  gpuErrchk(cudaPeekAtLastError());
   cudaMemcpy(pointcloud_size_d, &pointcloud_size, sizeof(int), cudaMemcpyHostToDevice);
+  gpuErrchk(cudaPeekAtLastError());
 
   Vector3f * origin_transformed_d;
   cudaMalloc(&origin_transformed_d, sizeof(*origin_transformed_h));
+  gpuErrchk(cudaPeekAtLastError());
   cudaMemcpy(origin_transformed_d, origin_transformed_h,sizeof(*origin_transformed_h),cudaMemcpyHostToDevice);
+  gpuErrchk(cudaPeekAtLastError());
 
   HashTable * hash_table_d = tsdfContainer->getCudaHashTable();
   BlockHeap * block_heap_d = tsdfContainer->getCudaBlockHeap();
@@ -843,8 +853,11 @@ void TSDFHandler::processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ
   garbageCollectDistantBlocks(origin_transformed_d, hash_table_d, block_heap_d);
 
   cudaFree(pointcloud_size_d);
+  gpuErrchk(cudaPeekAtLastError());
   cudaFree(points_d);
+  gpuErrchk(cudaPeekAtLastError());
   cudaFree(origin_transformed_d);
+  gpuErrchk(cudaPeekAtLastError());
 
 }
 
@@ -861,8 +874,11 @@ void TSDFHandler::allocateVoxelBlocksAndUpdateVoxels(pcl::PointXYZ * points_d, V
   int * pointcloud_voxel_blocks_h_index = new int(0); //keep track of number of voxel blocks allocated
   int * pointcloud_voxel_blocks_d_index;
   cudaMalloc(&pointcloud_voxel_blocks_d, sizeof(*pointcloud_voxel_blocks_h)*maxBlocks);
+  gpuErrchk(cudaPeekAtLastError());
   cudaMemcpy(pointcloud_voxel_blocks_d, pointcloud_voxel_blocks_h, sizeof(*pointcloud_voxel_blocks_h)*maxBlocks,cudaMemcpyHostToDevice); //need to memcpy?
+  gpuErrchk(cudaPeekAtLastError());
   cudaMalloc(&pointcloud_voxel_blocks_d_index, sizeof(*pointcloud_voxel_blocks_h_index));
+  gpuErrchk(cudaPeekAtLastError());
   cudaMemcpy(pointcloud_voxel_blocks_d_index, pointcloud_voxel_blocks_h_index, sizeof(*pointcloud_voxel_blocks_h_index), cudaMemcpyHostToDevice);
 
   int num_cuda_blocks = pointcloud_size / threadsPerCudaBlock + 1;
@@ -874,9 +890,11 @@ void TSDFHandler::allocateVoxelBlocksAndUpdateVoxels(pcl::PointXYZ * points_d, V
   updateVoxels(num_cuda_blocks, points_d, origin_transformed_d, pointcloud_size_d, hash_table_d, block_heap_d);
 
   cudaFree(pointcloud_voxel_blocks_d);
+  gpuErrchk(cudaPeekAtLastError());
   cudaFree(pointcloud_voxel_blocks_d_index);
+  gpuErrchk(cudaPeekAtLastError());
   free(pointcloud_voxel_blocks_h_index);
-
+  gpuErrchk(cudaPeekAtLastError());
 }
 
 /*
@@ -889,7 +907,7 @@ void TSDFHandler::getVoxelBlocks(int num_cuda_blocks, pcl::PointXYZ * points_d, 
   cudaEventRecord(start);
 
   getVoxelBlocksForPoint<<<num_cuda_blocks,threadsPerCudaBlock>>>(points_d, pointcloud_voxel_blocks_d, pointcloud_voxel_blocks_d_index, origin_transformed_d, pointcloud_size_d);
-  gpuErrchk( cudaPeekAtLastError() );
+  gpuErrchk(cudaPeekAtLastError());
   cudaDeviceSynchronize();
 
   cudaEventRecord(stop);
@@ -986,17 +1004,10 @@ void TSDFHandler::publishOccupiedVoxels(Vector3f * origin_transformed_d, Vector3
   cudaEventCreate(&stop);
   cudaEventRecord(start);
 
-  Vector3f * occupied_voxels_d;
-  int * occupied_voxels_index_d;
-  Voxel * sdfWeightVoxelVals_d;
+  int * occupied_voxels_index_d; //keep track of # of occupied voxels
   int occupiedVoxelsSize = OCCUPIED_VOXELS_SIZE;
-  cudaMalloc(&occupied_voxels_d, sizeof(*occupied_voxels_h)*occupiedVoxelsSize);
-  cudaMemcpy(occupied_voxels_d, occupied_voxels_h, sizeof(*occupied_voxels_h)*occupiedVoxelsSize,cudaMemcpyHostToDevice);
   cudaMalloc(&occupied_voxels_index_d, sizeof(*occupied_voxels_index));
   cudaMemcpy(occupied_voxels_index_d, occupied_voxels_index, sizeof(*occupied_voxels_index), cudaMemcpyHostToDevice);
-  cudaMalloc(&sdfWeightVoxelVals_d, sizeof(*sdfWeightVoxelVals_h)*occupiedVoxelsSize);
-  cudaMemcpy(sdfWeightVoxelVals_d, sdfWeightVoxelVals_h, sizeof(*sdfWeightVoxelVals_h)*occupiedVoxelsSize, cudaMemcpyHostToDevice);
-
   int numCudaBlocks = HASH_TABLE_SIZE / threadsPerCudaBlock + 1;
   publishOccupiedVoxelsCuda<<<numCudaBlocks,threadsPerCudaBlock>>>(origin_transformed_d, hash_table_d, block_heap_d, occupied_voxels_d, occupied_voxels_index_d, sdfWeightVoxelVals_d);
   gpuErrchk( cudaPeekAtLastError() );
@@ -1006,9 +1017,7 @@ void TSDFHandler::publishOccupiedVoxels(Vector3f * origin_transformed_d, Vector3
   cudaMemcpy(occupied_voxels_index, occupied_voxels_index_d, sizeof(int), cudaMemcpyDeviceToHost);
   cudaMemcpy(sdfWeightVoxelVals_h, sdfWeightVoxelVals_d, sizeof(*sdfWeightVoxelVals_h)*occupiedVoxelsSize, cudaMemcpyDeviceToHost);
 
-  cudaFree(occupied_voxels_d); //instead of allocating and freeing over and over just add to tsdfhandler
   cudaFree(occupied_voxels_index_d);
-  cudaFree(sdfWeightVoxelVals_d);
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);

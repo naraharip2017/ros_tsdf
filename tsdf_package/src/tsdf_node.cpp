@@ -62,7 +62,6 @@ int main(int argc, char ** argv)
 {
 
   rclcpp::init(argc, argv);
-  //sleep(10);
 
   auto node = rclcpp::Node::make_shared("tsdf_node");
 
@@ -90,14 +89,14 @@ int main(int argc, char ** argv)
   clock_ = node->get_clock();
 
   auto lidar_sub = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-    "lidar", 500, callback
-  ); 
+    "lidar", 1, callback
+  );
 
-  auto tsdf_occupied_voxels_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("tsdf_occupied_voxels", 10);
+  auto tsdf_occupied_voxels_pub = node->create_publisher<visualization_msgs::msg::MarkerArray>("tsdf_occupied_voxels", 1);
 
-  auto tsdf_occupied_voxels_pc_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>("tsdf_occupied_voxels_pointcloud", 10);
+  auto tsdf_occupied_voxels_pc_pub = node->create_publisher<sensor_msgs::msg::PointCloud2>("tsdf_occupied_voxels_pointcloud", 1);
 
-  auto tsdf_pub = node->create_publisher<tsdf_package_msgs::msg::Tsdf>("tsdf", 10);
+  auto tsdf_pub = node->create_publisher<tsdf_package_msgs::msg::Tsdf>("tsdf", 1);
 
   tsdfHandler = new TSDFHandler();
   //source frame set to lidar frame
