@@ -33,15 +33,46 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(tsdf_package_msgs REQUIRED)
 
-#todo change to library and target link libraries
-add_executable(tsdf_node 
-  src/tsdf_node.cpp
+include_directories(
+  include
+  include/cuda
+)
+
+SET(CUDA_SEPARABLE_COMPILATION ON)
+CUDA_SELECT_NVCC_ARCH_FLAGS(ARCH_FLAGS Auto)
+SET(CUDA_NVCC_FLAGS ${ARCH_FLAGS} CACHE STRING "nvcc flags" FORCE)
+
+cuda_add_library(${PROJECT_NAME}_cuda SHARED
+  src/cuda/tsdf_handler.cu
+  src/cuda/tsdf_container.cu
+  OPTIONS -g -shared -Xcompiler -fPIC -rdc=true #-Xptxas=-v
+)
+
+ament_target_dependencies(${PROJECT_NAME}_cuda 
+  "pcl_conversions"
+  "pcl"
+)
+
+add_library(tsdf_node 
   src/transformer.cpp
   src/publisher.cpp
 )
-target_include_directories(tsdf_node PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>)
+
+ament_export_interfaces(export_tsdf_node HAS_LIBRARY_TARGET)
+
+ament_export_dependencies(
+  "visualization_msgs"
+  "CUDA"
+  "rclcpp"
+  "sensor_msgs"
+  "pcl_conversions"
+  "std_msgs"
+  "PCL"
+  "tf2"
+  "tf2_ros"
+  "tf2_geometry_msgs"
+  "tsdf_package_msgs"
+)
 
 ament_target_dependencies(tsdf_node 
   "visualization_msgs"
@@ -57,41 +88,12 @@ ament_target_dependencies(tsdf_node
   "tsdf_package_msgs"
 )
 
-CUDA_SELECT_NVCC_ARCH_FLAGS(ARCH_FLAGS Auto)
-SET(CUDA_NVCC_FLAGS ${ARCH_FLAGS} CACHE STRING "nvcc flags" FORCE)
-
-cuda_add_library(${PROJECT_NAME}_cuda SHARED
-  src/cuda/tsdf_handler.cu
-  src/cuda/tsdf_container.cu
-  OPTIONS -g -shared -Xcompiler -fPIC -rdc=true #-Xptxas=-v
-)
-target_include_directories(${PROJECT_NAME}_cuda PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-  ${PCL_INCLUDE_DIRS})
-
 target_link_libraries(tsdf_node 
-${PROJECT_NAME}_cuda
-${Boost_SYSTEM_LIBRARY}  # pcl_conversions requires this
-${PCL_LIBRARIES}
-${tf2_LIBRARIES}
-${tf2_ros_LIBRARIES}
-)
-
-ament_export_interfaces(${PROJECT_NAME}_cuda HAS_LIBRARY_TARGET)
-
-install(TARGETS tsdf_node
-  DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}/)
-
-install(
-  TARGETS ${PROJECT_NAME}_cuda
-  EXPORT ${PROJECT_NAME}_cuda
-  LIBRARY DESTINATION lib
-  ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin
-  INCLUDES DESTINATION include
+  ${PROJECT_NAME}_cuda
+  ${Boost_SYSTEM_LIBRARY}  # pcl_conversions requires this
+  ${PCL_LIBRARIES}
+  ${tf2_LIBRARIES}
+  ${tf2_ros_LIBRARIES}
 )
 
 if(BUILD_TESTING)
@@ -104,5 +106,22 @@ if(BUILD_TESTING)
   #set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
+
+install(
+  TARGETS tsdf_node ${PROJECT_NAME}_cuda
+  EXPORT export_tsdf_node
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
+  INCLUDES DESTINATION include
+  )
+install(DIRECTORY include/
+  DESTINATION include)
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}/)
+
+ament_export_include_directories(include)
+
+
 
 ament_package()
