@@ -26,6 +26,18 @@ http://eigen.tuxfamily.org/dox/GettingStarted.html
 * Nvidia GPU that supports dynamic parallelism. The project has been tested on an RTX 2080 Super and Jetson Xavier
 * CUDA >= 10.2
 * CMake >= 3.5
+* ROS2 Dashing
+
+Create a ros2 workspace and clone the repo into the src directory
+
+From the workspace directory run one of the following commands
+
+**Debug Mode**
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=gcc-8 -DCMAKE_CXX_COMPILER=g++-8
+
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-8 -DCMAKE_CXX_COMPILER=g++-8
+
+If there is an initial build error related to dynamic parallelism, attempt to build once more
 
 # Results
 Video
