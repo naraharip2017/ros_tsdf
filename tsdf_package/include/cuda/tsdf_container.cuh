@@ -19,7 +19,7 @@ const int NUM_BUCKETS = 1000000;
 __constant__
 const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS;
 __constant__
-const int NUM_HEAP_BLOCKS = 500000;
+const int NUM_HEAP_BLOCKS = 10000;
 __constant__
 const int PRIME_ONE = 73856093;
 __constant__
@@ -73,7 +73,7 @@ struct HashEntry{
 };
 
 struct HashTable{
-    HashEntry hashEntries[HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS];
+    HashEntry hash_entries[HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS];
     int mutex[NUM_BUCKETS]; //make bool
     __device__ __host__
     HashTable(){
@@ -85,13 +85,13 @@ struct HashTable{
 
 struct BlockHeap{
     VoxelBlock blocks[NUM_HEAP_BLOCKS]; 
-    int freeBlocks[NUM_HEAP_BLOCKS];
-    int currentIndex;
+    int free_blocks[NUM_HEAP_BLOCKS];
+    int current_index;
     BlockHeap() {   
         for(int i=0; i<NUM_HEAP_BLOCKS; ++i){
-            freeBlocks[i] = i;
+            free_blocks[i] = i;
         }
-        currentIndex = 0;
+        current_index = 0;
     }
 };
 
@@ -111,11 +111,11 @@ public:
     BlockHeap * getCudaBlockHeap();
 
 private:
-    HashTable * hashTable_h;
-    HashTable * hashTable_d;
+    HashTable * hash_table_h;
+    HashTable * hash_table_d;
 
-    BlockHeap * blockHeap_h;
-    BlockHeap * blockHeap_d;
+    BlockHeap * block_heap_h;
+    BlockHeap * block_heap_d;
 };
 
 #endif

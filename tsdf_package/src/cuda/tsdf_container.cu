@@ -8,25 +8,25 @@
 
 TSDFContainer::TSDFContainer(){
     //allocate hash table and block heap on host and device
-    hashTable_h = new HashTable();
-    blockHeap_h = new BlockHeap();
-    cudaMalloc(&hashTable_d, sizeof(*hashTable_h));
-    cudaMemcpy(hashTable_d, hashTable_h, sizeof(*hashTable_h), cudaMemcpyHostToDevice);
-    cudaMalloc(&blockHeap_d, sizeof(*blockHeap_h));
-    cudaMemcpy(blockHeap_d, blockHeap_h, sizeof(*blockHeap_h), cudaMemcpyHostToDevice);
+    hash_table_h = new HashTable();
+    block_heap_h = new BlockHeap();
+    cudaMalloc(&hash_table_d, sizeof(*hash_table_h));
+    cudaMemcpy(hash_table_d, hash_table_h, sizeof(*hash_table_h), cudaMemcpyHostToDevice);
+    cudaMalloc(&block_heap_d, sizeof(*block_heap_h));
+    cudaMemcpy(block_heap_d, block_heap_h, sizeof(*block_heap_h), cudaMemcpyHostToDevice);
 }
 
 TSDFContainer::~TSDFContainer(){
-    cudaFree(hashTable_d);
-    cudaFree(blockHeap_d);
-    delete hashTable_h;
-    delete blockHeap_h;
+    cudaFree(hash_table_d);
+    cudaFree(block_heap_d);
+    delete hash_table_h;
+    delete block_heap_h;
 }
 
 HashTable * TSDFContainer::getCudaHashTable(){
-    return hashTable_d;
+    return hash_table_d;
 }
 
 BlockHeap * TSDFContainer::getCudaBlockHeap(){
-    return blockHeap_d;
+    return block_heap_d;
 }

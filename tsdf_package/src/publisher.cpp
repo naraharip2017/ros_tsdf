@@ -3,40 +3,40 @@
 //determines if voxel is within publishing distance of drone - move this logic to tsdf handler
 inline bool Publisher::withinPublishDistance(Vector3f & a, Vector3f & b){
   Vector3f diff = b - a;
-  float distanceSquared  = pow(diff(0), 2) + pow(diff(1), 2) + pow(diff(2), 2);
-  if(distanceSquared <= publishDistanceSquared){
+  float distance_squared  = pow(diff(0), 2) + pow(diff(1), 2) + pow(diff(2), 2);
+  if(distance_squared <= publish_distance_squared){
     return true;
   }
   return false;
 }
 
-void Publisher::publishWithVisualization(int & numVoxels){   
-    markerArray.markers.clear(); 
-    visualization_msgs::msg::Marker markerGreen, markerRed;
-    markerGreen.type = markerRed.type = visualization_msgs::msg::Marker::CUBE_LIST;
-    markerGreen.action = markerRed.action = visualization_msgs::msg::Marker::ADD;
-    markerGreen.header.frame_id = markerRed.header.frame_id= "world_ned";
-    markerGreen.ns = markerRed.ns = "occupied_voxels";
-    markerGreen.id = 0;
-    markerRed.id = 1;
-    // markerGreen.pose.orientation.w = markerRed.pose.orientation.w = 1.0;
-    markerGreen.scale.x = markerRed.scale.x = voxel_size;
-    markerGreen.scale.y = markerRed.scale.y = voxel_size;
-    markerGreen.scale.z = markerRed.scale.z = voxel_size;
-    markerGreen.color.a = markerRed.color.a = 1.0; // Don't forget to set the alpha!
-    markerGreen.color.r = 0.0;
-    markerRed.color.g = 0.0;
-    markerGreen.color.b = markerRed.color.b = 0.0;
-    markerRed.color.r = 1.0;
-    markerGreen.color.g = 1.0;
+void Publisher::publishWithVisualization(int & num_voxels){   
+    marker_array.markers.clear(); 
+    visualization_msgs::msg::Marker marker_green, marker_red;
+    marker_green.type = marker_red.type = visualization_msgs::msg::Marker::CUBE_LIST;
+    marker_green.action = marker_red.action = visualization_msgs::msg::Marker::ADD;
+    marker_green.header.frame_id = marker_red.header.frame_id= "world_ned";
+    marker_green.ns = marker_red.ns = "occupied_voxels";
+    marker_green.id = 0;
+    marker_red.id = 1;
+    // marker_green.pose.orientation.w = marker_red.pose.orientation.w = 1.0;
+    marker_green.scale.x = marker_red.scale.x = voxel_size;
+    marker_green.scale.y = marker_red.scale.y = voxel_size;
+    marker_green.scale.z = marker_red.scale.z = voxel_size;
+    marker_green.color.a = marker_red.color.a = 1.0; // Don't forget to set the alpha!
+    marker_green.color.r = 0.0;
+    marker_red.color.g = 0.0;
+    marker_green.color.b = marker_red.color.b = 0.0;
+    marker_red.color.r = 1.0;
+    marker_green.color.g = 1.0;
 
     pcl::PointCloud<pcl::PointXYZ> pointcloud;
 
     auto message = tsdf_package_msgs::msg::Tsdf(); 
 
-    for(int i=0;i<numVoxels;i++){
-      Vector3f v = occupiedVoxels[i];
-      Voxel voxel = sdfWeightVoxelVals[i];
+    for(int i=0;i<num_voxels;i++){
+      Vector3f v = occupied_voxels[i];
+      Voxel voxel = sdf_weight_voxel_vals[i];
       geometry_msgs::msg::Point p;
       //although in ned frame this swaps the points to enu for easier visualization in rviz
       p.x = -1 * v(1); //todo: fix, swapping so visualization looks right in rviz
@@ -46,18 +46,18 @@ void Publisher::publishWithVisualization(int & numVoxels){
       pcl::PointXYZ point(v(0),v(1),v(2));
       pointcloud.push_back(point);
 
-      auto msgVoxel = tsdf_package_msgs::msg::Voxel();
-      msgVoxel.sdf = voxel.sdf;
-      msgVoxel.weight = voxel.weight;
-      msgVoxel.x = v(0);
-      msgVoxel.y = v(1);
-      msgVoxel.z = v(2);
-      message.voxels.push_back(msgVoxel);
+      auto msg_voxel = tsdf_package_msgs::msg::Voxel();
+      msg_voxel.sdf = voxel.sdf;
+      msg_voxel.weight = voxel.weight;
+      msg_voxel.x = v(0);
+      msg_voxel.y = v(1);
+      msg_voxel.z = v(2);
+      message.voxels.push_back(msg_voxel);
       if(voxel.sdf >= 0){
-        markerGreen.points.push_back(p);
+        marker_green.points.push_back(p);
       }
       else{
-        markerRed.points.push_back(p);
+        marker_red.points.push_back(p);
       }
     }
 
@@ -67,46 +67,44 @@ void Publisher::publishWithVisualization(int & numVoxels){
     sensor_msgs::msg::PointCloud2 msg;
     pcl_conversions::fromPCL(pcl_pc2, msg);
 
-    // markerGreen.header.stamp = markerRed.header.stamp = clock_->now();
-    // markerArray.markers[0] = markerGreen;
-    // markerArray.markers[1] = markerRed;
-    markerArray.markers.push_back(markerGreen);
-    markerArray.markers.push_back(markerRed);
-    tsdf_occupied_voxels_pub->publish(markerArray);
+    // marker_green.header.stamp = marker_red.header.stamp = clock->now();
+    marker_array.markers.push_back(marker_green);
+    marker_array.markers.push_back(marker_red);
+    tsdf_occupied_voxels_pub->publish(marker_array);
     msg.header.frame_id = "world_ned";
     tsdf_occupied_voxels_pc_pub->publish(msg);
 
     message.size = message.voxels.size();
-    message.truncation_distance = truncationDistance;
+    message.truncation_distance = truncation_distance;
     tsdf_pub->publish(message);
 }
 
 //publishes visualization and tsdf topic
-void Publisher::publish(int & numVoxels){ 
+void Publisher::publish(int & num_voxels){ 
   auto now = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - last_time).count();
-  if(visualizePublishedVoxels && duration > 5){
+  if(visualize_published_voxels && duration > 5){
     last_time = now;
-    publishWithVisualization(numVoxels);
+    publishWithVisualization(num_voxels);
   }
   else{
     auto message = tsdf_package_msgs::msg::Tsdf(); 
-    for(int i=0;i<numVoxels;i++){
-      Vector3f v = occupiedVoxels[i];
-      Voxel voxel = sdfWeightVoxelVals[i];
+    for(int i=0;i<num_voxels;i++){
+      Vector3f v = occupied_voxels[i];
+      Voxel voxel = sdf_weight_voxel_vals[i];
       geometry_msgs::msg::Point p;
 
-      auto msgVoxel = tsdf_package_msgs::msg::Voxel();
-      msgVoxel.sdf = voxel.sdf;
-      msgVoxel.weight = voxel.weight;
-      msgVoxel.x = v(0);
-      msgVoxel.y = v(1);
-      msgVoxel.z = v(2);
-      message.voxels.push_back(msgVoxel);
+      auto msg_voxel = tsdf_package_msgs::msg::Voxel();
+      msg_voxel.sdf = voxel.sdf;
+      msg_voxel.weight = voxel.weight;
+      msg_voxel.x = v(0);
+      msg_voxel.y = v(1);
+      msg_voxel.z = v(2);
+      message.voxels.push_back(msg_voxel);
     }
 
     message.size = message.voxels.size();
-    message.truncation_distance = truncationDistance;
+    message.truncation_distance = truncation_distance;
     message.voxel_size = voxel_size;
     tsdf_pub->publish(message);
   }
@@ -115,18 +113,18 @@ void Publisher::publish(int & numVoxels){
 Publisher::Publisher(rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr tsdf_occupied_voxels_pub,
 rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr tsdf_occupied_voxels_pc_pub, 
 rclcpp::Publisher<tsdf_package_msgs::msg::Tsdf>::SharedPtr tsdf_pub, 
-bool & visualizePublishedVoxels, float & publishDistanceSquared, float & truncationDistance, float & voxel_size, rclcpp::Clock::SharedPtr clock,
-Vector3f * occupiedVoxels, Voxel * sdfWeightVoxelVals){
+bool & visualize_published_voxels, float & publish_distance_squared, float & truncation_distance, float & voxel_size, rclcpp::Clock::SharedPtr clock,
+Vector3f * occupied_voxels, Voxel * sdf_weight_voxel_vals){
   this->tsdf_occupied_voxels_pub = tsdf_occupied_voxels_pub;
   this->tsdf_occupied_voxels_pc_pub = tsdf_occupied_voxels_pc_pub;
   this->tsdf_pub = tsdf_pub;
-  this->visualizePublishedVoxels = visualizePublishedVoxels;
-  this->publishDistanceSquared = publishDistanceSquared;
-  this->truncationDistance = truncationDistance;
+  this->visualize_published_voxels = visualize_published_voxels;
+  this->publish_distance_squared = publish_distance_squared;
+  this->truncation_distance = truncation_distance;
   this->voxel_size = voxel_size;
-  clock_ = clock;
-  this->occupiedVoxels = occupiedVoxels;
-  this->sdfWeightVoxelVals = sdfWeightVoxelVals;
-  markerArray.markers.resize(2);
+  this->clock = clock;
+  this->occupied_voxels = occupied_voxels;
+  this->sdf_weight_voxel_vals = sdf_weight_voxel_vals;
+  marker_array.markers.resize(2);
   last_time = std::chrono::high_resolution_clock::now();
 }

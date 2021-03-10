@@ -1,7 +1,7 @@
 #include "cuda/tsdf_handler.cuh"
 
 //used to determine num blocks when executing cuda kernel
-const int threadsPerCudaBlock = 128;
+const int threads_per_cuda_block = 128;
 
 //error function for cpu called after kernel calls
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
@@ -27,30 +27,30 @@ __device__ void cdpAssert(cudaError_t code, const char *file, int line, bool abo
 
 //used for debugging, current index represents num of heap blocks in heap
 __global__
-void printHashTableAndBlockHeap(HashTable * hashTable_d, BlockHeap * blockHeap_d){
-  // HashEntry * hashEntries = hashTable_d->hashEntries;
+void printHashTableAndBlockHeap(HashTable * hash_table_d, BlockHeap * block_heap_d){
+  // HashEntry * hash_entries = hash_table_d->hash_entries;
   // for(size_t i=0;i<NUM_BUCKETS; ++i){
   //   printf("Bucket: %lu\n", (unsigned long)i);
   //   for(size_t it = 0; it<HASH_ENTRIES_PER_BUCKET; ++it){
-  //     HashEntry hashEntry = hashEntries[it+i*HASH_ENTRIES_PER_BUCKET];
-  //     Vector3f position = hashEntry.position;
-  //     if (hashEntry.isFree()){
-  //       printf("  Hash Entry with   Position: (N,N,N)   Offset: %d   Pointer: %d\n", hashEntry.offset, hashEntry.pointer);
+  //     HashEntry hash_entry = hash_entries[it+i*HASH_ENTRIES_PER_BUCKET];
+  //     Vector3f position = hash_entry.position;
+  //     if (hash_entry.isFree()){
+  //       printf("  Hash Entry with   Position: (N,N,N)   Offset: %d   Pointer: %d\n", hash_entry.offset, hash_entry.pointer);
   //     }
   //     else{
-  //       printf("  Hash Entry with   Position: (%f,%f,%f)   Offset: %d   Pointer: %d\n", position(0), position(1), position(2), hashEntry.offset, hashEntry.pointer);
+  //       printf("  Hash Entry with   Position: (%f,%f,%f)   Offset: %d   Pointer: %d\n", position(0), position(1), position(2), hash_entry.offset, hash_entry.pointer);
   //     }
   //   }
   //   printf("%s\n", "--------------------------------------------------------");
   // }
 
   // printf("Block Heap Free List: ");
-  // int * freeBlocks = blockHeap_d->freeBlocks;
+  // int * freeBlocks = block_heap_d->free_blocks;
   // for(size_t i = 0; i<NUM_HEAP_BLOCKS; ++i){
   //   printf("%d  ", freeBlocks[i]);
   // }
   // printf("\n");
-  printf("Current Block Heap Free Index: %d\n", blockHeap_d->currentIndex);
+  printf("Current Block Heap Free Index: %d\n", block_heap_d->current_index);
 }
 
 /*
@@ -65,7 +65,7 @@ size_t retrieveHashIndexFromPoint(Vector3f point){
 * calculates floor in scale given
 */
 __device__ 
-float FloorFun(float x, float scale){
+float floorFun(float x, float scale){
   return floor(x*scale) / scale;
 }
 
@@ -77,9 +77,9 @@ Vector3f getVolumeCenterFromPoint(Vector3f point, float volume_size){
   float scale = 1/volume_size;
   float half_volume_size = volume_size / 2;
   Vector3f volume_center;
-  volume_center(0) = FloorFun(point(0), scale) + half_volume_size;
-  volume_center(1) = FloorFun(point(1), scale) + half_volume_size;
-  volume_center(2) = FloorFun(point(2), scale) + half_volume_size;
+  volume_center(0) = floorFun(point(0), scale) + half_volume_size;
+  volume_center(1) = floorFun(point(1), scale) + half_volume_size;
+  volume_center(2) = floorFun(point(2), scale) + half_volume_size;
   return volume_center;
 }
 
@@ -106,17 +106,17 @@ inline void getTruncationLineEndPoints(pcl::PointXYZ & point_d, Vector3f * origi
   Vector3f point_d_vector(point_d.x, point_d.y, point_d.z);
   Vector3f v = point_d_vector - u; //direction
   //equation of line is u+tv
-  float vMag = sqrt(pow(v(0), 2) + pow(v(1),2) + pow(v(2), 2));
-  Vector3f v_normalized = v / vMag;
+  float v_mag = sqrt(pow(v(0), 2) + pow(v(1),2) + pow(v(2), 2));
+  Vector3f v_normalized = v / v_mag;
   truncation_start = point_d_vector - TRUNCATION_DISTANCE*v_normalized;
   
   truncation_end = point_d_vector + TRUNCATION_DISTANCE*v_normalized;
 
   //set truncation_start to whichever point is closer to the origin
-  float distance_tStart_origin = pow(truncation_start(0) - u(0), 2) + pow(truncation_start(1) - u(1),2) + pow(truncation_start(2) - u(2), 2);
-  float distance_tEnd_origin = pow(truncation_end(0) - u(0), 2) + pow(truncation_end(1) - u(1),2) + pow(truncation_end(2) - u(2), 2);
+  float distance_t_start_origin = pow(truncation_start(0) - u(0), 2) + pow(truncation_start(1) - u(1),2) + pow(truncation_start(2) - u(2), 2);
+  float distance_t_end_origin = pow(truncation_end(0) - u(0), 2) + pow(truncation_end(1) - u(1),2) + pow(truncation_end(2) - u(2), 2);
 
-  if(distance_tEnd_origin < distance_tStart_origin){
+  if(distance_t_end_origin < distance_t_start_origin){
     Vector3f temp = truncation_start;
     truncation_start = truncation_end;
     truncation_end = temp;
@@ -133,16 +133,16 @@ inline void traverseVolume(Vector3f & truncation_start_vol, Vector3f & truncatio
   const float epsilon = volume_size / 4;
   const float volume_size_plus_epsilon = volume_size + epsilon;
   const float volume_size_minus_epsilon = volume_size - epsilon;
-  float stepX = v(0) > 0 ? volume_size : -1 * volume_size;
-  float stepY = v(1) > 0 ? volume_size : -1 * volume_size;
-  float stepZ = v(2) > 0 ? volume_size : -1 * volume_size;
+  float step_x = v(0) > 0 ? volume_size : -1 * volume_size;
+  float step_y = v(1) > 0 ? volume_size : -1 * volume_size;
+  float step_z = v(2) > 0 ? volume_size : -1 * volume_size;
   Vector3f truncation_vol_start_center = getVolumeCenterFromPoint(truncation_start_vol, volume_size);
-  float tMaxX = fabs(v(0) < 0 ? (truncation_vol_start_center(0) - half_volume_size - u(0)) / v(0) : (truncation_vol_start_center(0) + half_volume_size - u(0)) / v(0));
-  float tMaxY = fabs(v(1) < 0 ? (truncation_vol_start_center(1) - half_volume_size - u(1)) / v(1) : (truncation_vol_start_center(1) + half_volume_size - u(1)) / v(1));
-  float tMaxZ = fabs(v(2) < 0 ? (truncation_vol_start_center(2) - half_volume_size - u(2)) / v(2) : (truncation_vol_start_center(2) + half_volume_size - u(2)) / v(2));
-  float tDeltaX = fabs(volume_size / v(0));
-  float tDeltaY = fabs(volume_size / v(1));
-  float tDeltaZ = fabs(volume_size / v(2));
+  float tMax_x = fabs(v(0) < 0 ? (truncation_vol_start_center(0) - half_volume_size - u(0)) / v(0) : (truncation_vol_start_center(0) + half_volume_size - u(0)) / v(0));
+  float tMax_y = fabs(v(1) < 0 ? (truncation_vol_start_center(1) - half_volume_size - u(1)) / v(1) : (truncation_vol_start_center(1) + half_volume_size - u(1)) / v(1));
+  float tMax_z = fabs(v(2) < 0 ? (truncation_vol_start_center(2) - half_volume_size - u(2)) / v(2) : (truncation_vol_start_center(2) + half_volume_size - u(2)) / v(2));
+  float tDelta_x = fabs(volume_size / v(0));
+  float tDelta_y = fabs(volume_size / v(1));
+  float tDelta_z = fabs(volume_size / v(2));
   Vector3f current_vol(truncation_start_vol(0), truncation_start_vol(1), truncation_start_vol(2));
   Vector3f current_vol_center = getVolumeCenterFromPoint(current_vol, volume_size);
   Vector3f truncation_vol_end_center = getVolumeCenterFromPoint(truncation_end_vol, volume_size);
@@ -159,8 +159,8 @@ inline void traverseVolume(Vector3f & truncation_start_vol, Vector3f & truncatio
     traversed_vols[insert_index] = current_vol_center;
     // printf("current_vol: (%f,%f,%f)\n", current_vol(0), current_vol(1), current_vol(2));
     // printf("current_vol_center: (%f,%f,%f)\n", current_vol_center(0), current_vol_center(1), current_vol_center(2));
-    // printf("tMaxX: %f, tMaxy: %f, tMaxZ:%f\n", tMaxX, tMaxY, tMaxZ);
-    // printf("deltaX: %f, deltaY: %f, deltaZ:%f\n", tDeltaX, tDeltaY, tDeltaZ);
+    // printf("tMax_x: %f, tMax_y: %f, tMax_z:%f\n", tMax_x, tMax_y, tMax_z);
+    // printf("deltaX: %f, deltaY: %f, deltaZ:%f\n", tDelta_x, tDelta_y, tDelta_z);
     current_index ++;
     if(current_index > 30){
       printf("current_vol_center: (%f,%f,%f), end_center: (%f,%f,%f), start_center: (%f,%f,%f), end: (%f,%f,%f), start: (%f,%f,%f)\n", current_vol_center(0), current_vol_center(1), current_vol_center(2), truncation_vol_end_center(0), truncation_vol_end_center(1), truncation_vol_end_center(2), truncation_vol_start_center(0), truncation_vol_start_center(1), truncation_vol_start_center(2), truncation_end_vol(0), truncation_end_vol(1), truncation_end_vol(2), truncation_start_vol(0), truncation_start_vol(1), truncation_start_vol(2));
@@ -168,57 +168,57 @@ inline void traverseVolume(Vector3f & truncation_start_vol, Vector3f & truncatio
       break;
     }
 
-    if(tMaxX < tMaxY){
-      if(tMaxX < tMaxZ)
+    if(tMax_x < tMax_y){
+      if(tMax_x < tMax_z)
       {
-        current_vol(0) += stepX;
-        tMaxX += tDeltaX;
+        current_vol(0) += step_x;
+        tMax_x += tDelta_x;
       }
-      else if(tMaxX > tMaxZ){
-        current_vol(2) += stepZ;
-        tMaxZ += tDeltaZ;
+      else if(tMax_x > tMax_z){
+        current_vol(2) += step_z;
+        tMax_z += tDelta_z;
       }
       else{
-        current_vol(0) += stepX;
-        current_vol(2) += stepZ;
-        tMaxX += tDeltaX;
-        tMaxZ += tDeltaZ;
+        current_vol(0) += step_x;
+        current_vol(2) += step_z;
+        tMax_x += tDelta_x;
+        tMax_z += tDelta_z;
       }
     }
-    else if(tMaxX > tMaxY){
-      if(tMaxY < tMaxZ){
-        current_vol(1) += stepY;
-        tMaxY += tDeltaY;
+    else if(tMax_x > tMax_y){
+      if(tMax_y < tMax_z){
+        current_vol(1) += step_y;
+        tMax_y += tDelta_y;
       }
-      else if(tMaxY > tMaxZ){
-        current_vol(2) += stepZ;
-        tMaxZ += tDeltaZ;
+      else if(tMax_y > tMax_z){
+        current_vol(2) += step_z;
+        tMax_z += tDelta_z;
       }
       else{
-        current_vol(1) += stepY;
-        current_vol(2) += stepZ;
-        tMaxY += tDeltaY;
-        tMaxZ += tDeltaZ;
+        current_vol(1) += step_y;
+        current_vol(2) += step_z;
+        tMax_y += tDelta_y;
+        tMax_z += tDelta_z;
       }
     }
     else{
-      if(tMaxZ < tMaxX){
-        current_vol(2) += stepZ;
-        tMaxZ += tDeltaZ;
+      if(tMax_z < tMax_x){
+        current_vol(2) += step_z;
+        tMax_z += tDelta_z;
       }
-      else if(tMaxZ > tMaxX){
-        current_vol(0) += stepX;
-        current_vol(1) += stepY;
-        tMaxX += tDeltaX;
-        tMaxY += tDeltaY;
+      else if(tMax_z > tMax_x){
+        current_vol(0) += step_x;
+        current_vol(1) += step_y;
+        tMax_x += tDelta_x;
+        tMax_y += tDelta_y;
       }
       else{ 
-        current_vol(0) += stepX;
-        current_vol(1) += stepY;
-        current_vol(2) += stepZ;
-        tMaxX += tDeltaX;
-        tMaxY += tDeltaY;
-        tMaxZ += tDeltaZ;
+        current_vol(0) += step_x;
+        current_vol(1) += step_y;
+        current_vol(2) += step_z;
+        tMax_x += tDelta_x;
+        tMax_y += tDelta_y;
+        tMax_z += tDelta_z;
       }
     } 
     Vector3f temp_current_vol_center = current_vol_center;
@@ -246,12 +246,12 @@ inline void traverseVolume(Vector3f & truncation_start_vol, Vector3f & truncatio
 * Kernel will get voxel blocks along ray between origin and a point in lidar cloud within truncation distance of point
 */
 __global__
-void getVoxelBlocksForPoint(pcl::PointXYZ * points_d, Vector3f * pointCloudVoxelBlocks_d, int * pointer_d, Vector3f * origin_transformed_d, int * size_d){
-  int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
-  if(threadIndex>=*size_d){
+void getVoxelBlocksForPoint(pcl::PointXYZ * points_d, Vector3f * point_cloud_voxel_blocks_d, int * pointer_d, Vector3f * origin_transformed_d, int * size_d){
+  int thread_index = (blockIdx.x*threads_per_cuda_block + threadIdx.x);
+  if(thread_index>=*size_d){
     return;
   }
-  pcl::PointXYZ point_d = points_d[threadIndex];
+  pcl::PointXYZ point_d = points_d[thread_index];
   Vector3f truncation_start;
   Vector3f truncation_end;
 
@@ -260,7 +260,7 @@ void getVoxelBlocksForPoint(pcl::PointXYZ * points_d, Vector3f * pointCloudVoxel
   Vector3f u = truncation_start;
   Vector3f v = truncation_end - truncation_start;
 
-  traverseVolume(truncation_start, truncation_end, VOXEL_BLOCK_SIZE, u, v, pointCloudVoxelBlocks_d, pointer_d);
+  traverseVolume(truncation_start, truncation_end, VOXEL_BLOCK_SIZE, u, v, point_cloud_voxel_blocks_d, pointer_d);
   return;
 }
 
@@ -268,30 +268,30 @@ void getVoxelBlocksForPoint(pcl::PointXYZ * points_d, Vector3f * pointCloudVoxel
 * Given block coordinates return the position of the block in the block heap or return -1 if not allocated
 */
 __device__ 
-int getBlockPositionForBlockCoordinates(Vector3f & voxelBlockCoordinates, size_t & bucket_index, size_t & currentGlobalIndex, HashEntry * hashEntries){
+int getBlockPositionForBlockCoordinates(Vector3f & voxel_block_coordinates, size_t & bucket_index, size_t & current_global_index, HashEntry * hash_entries){
 
-  HashEntry hashEntry;
+  HashEntry hash_entry;
 
   //check the hashed bucket for the block
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-    hashEntry = hashEntries[currentGlobalIndex+i];
-    if(checkFloatingPointVectorsEqual(hashEntry.position, voxelBlockCoordinates, BLOCK_EPSILON)){
-      return hashEntry.pointer;
+    hash_entry = hash_entries[current_global_index+i];
+    if(checkFloatingPointVectorsEqual(hash_entry.position, voxel_block_coordinates, BLOCK_EPSILON)){
+      return hash_entry.pointer;
     }
   }
 
-  currentGlobalIndex+=HASH_ENTRIES_PER_BUCKET-1;
+  current_global_index+=HASH_ENTRIES_PER_BUCKET-1;
 
   //check the linked list if necessary
-  while(hashEntry.offset!=0){
-    int offset = hashEntry.offset;
-    currentGlobalIndex+=offset;
-    if(currentGlobalIndex>=HASH_TABLE_SIZE){
-      currentGlobalIndex %= HASH_TABLE_SIZE;
+  while(hash_entry.offset!=0){
+    int offset = hash_entry.offset;
+    current_global_index+=offset;
+    if(current_global_index>=HASH_TABLE_SIZE){
+      current_global_index %= HASH_TABLE_SIZE;
     }
-    hashEntry = hashEntries[currentGlobalIndex];
-    if(checkFloatingPointVectorsEqual(hashEntry.position, voxelBlockCoordinates, BLOCK_EPSILON)){
-      return hashEntry.pointer;
+    hash_entry = hash_entries[current_global_index];
+    if(checkFloatingPointVectorsEqual(hash_entry.position, voxel_block_coordinates, BLOCK_EPSILON)){
+      return hash_entry.pointer;
     }
   }
 
@@ -303,20 +303,20 @@ int getBlockPositionForBlockCoordinates(Vector3f & voxelBlockCoordinates, size_t
 * If allocating a new block then first attempt to insert in the bucket it hashed to
 */
 __device__
-inline bool attemptHashedBucketVoxelBlockCreation(size_t & hashedBucketIndex, BlockHeap * blockHeap_d, Vector3f & voxelBlockCoordinates, HashEntry * hashEntries){
+inline bool attempHashedBucketVoxelBlockCreation(size_t & hashed_bucket_index, BlockHeap * block_heap_d, Vector3f & voxel_block_coordinates, HashEntry * hash_entries){
   //get position of beginning of hashed bucket
-  size_t insertCurrentGlobalIndex = hashedBucketIndex * HASH_ENTRIES_PER_BUCKET;
+  size_t insert_current_global_index = hashed_bucket_index * HASH_ENTRIES_PER_BUCKET;
   //loop through bucket and insert if there is a free space
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-    if(hashEntries[insertCurrentGlobalIndex+i].isFree()){ 
+    if(hash_entries[insert_current_global_index+i].isFree()){ 
       //get next free position in block heap
-      int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-      VoxelBlock * allocBlock = new VoxelBlock();
-      HashEntry * allocBlockHashEntry = new HashEntry(voxelBlockCoordinates, blockHeapFreeIndex);
-      blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-      hashEntries[insertCurrentGlobalIndex+i] = *allocBlockHashEntry;
-      cudaFree(allocBlock);
-      cudaFree(allocBlockHashEntry);
+      int block_heap_free_index = atomicAdd(&(block_heap_d->current_index), 1);
+      VoxelBlock * alloc_block = new VoxelBlock();
+      HashEntry * alloc_block_hash_entry = new HashEntry(voxel_block_coordinates, block_heap_free_index);
+      block_heap_d->blocks[block_heap_free_index] = *alloc_block;
+      hash_entries[insert_current_global_index+i] = *alloc_block_hash_entry;
+      cudaFree(alloc_block);
+      cudaFree(alloc_block_hash_entry);
       return true;
     }
   }
@@ -328,42 +328,42 @@ inline bool attemptHashedBucketVoxelBlockCreation(size_t & hashedBucketIndex, Bl
 * Attempt to allocated a new block into the linked list of the bucket it hashed to if there is no space in the bucket
 */
 __device__
-inline bool attemptLinkedListVoxelBlockCreation(size_t & hashedBucketIndex, BlockHeap * blockHeap_d, HashTable * hashTable_d, size_t & insertBucketIndex, size_t & endLinkedListPointer, Vector3f & voxelBlockCoordinates, HashEntry * hashEntries){
-  size_t insertCurrentGlobalIndex;
+inline bool attemptLinkedListVoxelBlockCreation(size_t & hashed_bucket_index, BlockHeap * block_heap_d, HashTable * hash_table_d, size_t & insert_bucket_index, size_t & end_linked_list_pointer, Vector3f & voxel_block_coordinates, HashEntry * hash_entries){
+  size_t insert_current_global_index;
   //only try to insert into other buckets until we get the block's hashed bucket which has already been tried
-  while(insertBucketIndex!=hashedBucketIndex){
+  while(insert_bucket_index!=hashed_bucket_index){
     //check that can get lock of the bucket attempting to insert the block
-    if(!atomicCAS(&hashTable_d->mutex[insertBucketIndex], 0, 1)){
-      insertCurrentGlobalIndex = insertBucketIndex * HASH_ENTRIES_PER_BUCKET;
+    if(!atomicCAS(&hash_table_d->mutex[insert_bucket_index], 0, 1)){
+      insert_current_global_index = insert_bucket_index * HASH_ENTRIES_PER_BUCKET;
       //loop through the insert bucket (not including the last slot which is reserved for linked list start of that bucket) checking for a free space
       for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET-1; ++i){
-        if(hashEntries[insertCurrentGlobalIndex+i].isFree() ){ 
-            int blockHeapFreeIndex = atomicAdd(&(blockHeap_d->currentIndex), 1);
-            VoxelBlock * allocBlock = new VoxelBlock();
-            HashEntry * allocBlockHashEntry = new HashEntry(voxelBlockCoordinates, blockHeapFreeIndex);
-            blockHeap_d->blocks[blockHeapFreeIndex] = *allocBlock;
-            size_t insertPos = insertCurrentGlobalIndex + i;
-            hashEntries[insertPos] = *allocBlockHashEntry;
-            cudaFree(allocBlock);
-            cudaFree(allocBlockHashEntry);
-            //set offset value for last hashEntry in the linked list
-            if(insertPos > endLinkedListPointer){
-              hashEntries[endLinkedListPointer].offset = insertPos - endLinkedListPointer;
+        if(hash_entries[insert_current_global_index+i].isFree() ){ 
+            int block_heap_free_index = atomicAdd(&(block_heap_d->current_index), 1);
+            VoxelBlock * alloc_block = new VoxelBlock();
+            HashEntry * alloc_block_hash_entry = new HashEntry(voxel_block_coordinates, block_heap_free_index);
+            block_heap_d->blocks[block_heap_free_index] = *alloc_block;
+            size_t insertPos = insert_current_global_index + i;
+            hash_entries[insertPos] = *alloc_block_hash_entry;
+            cudaFree(alloc_block);
+            cudaFree(alloc_block_hash_entry);
+            //set offset value for last hash_entry in the linked list
+            if(insertPos > end_linked_list_pointer){
+              hash_entries[end_linked_list_pointer].offset = insertPos - end_linked_list_pointer;
             }
             else{
-              hashEntries[endLinkedListPointer].offset = HASH_TABLE_SIZE - endLinkedListPointer + insertPos;
+              hash_entries[end_linked_list_pointer].offset = HASH_TABLE_SIZE - end_linked_list_pointer + insertPos;
             }
             return true;
         }
       }
       //if no free space in insert bucket then release lock
-      atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
+      atomicExch(&hash_table_d->mutex[insert_bucket_index], 0);
     }
     //move to next bucket to check for space to insert block
-    insertBucketIndex++;
+    insert_bucket_index++;
     //loop back to beginning of hash table if overflowed size
-    if(insertBucketIndex == NUM_BUCKETS){
-      insertBucketIndex = 0;
+    if(insert_bucket_index == NUM_BUCKETS){
+      insert_bucket_index = 0;
     }
   }
   //if found no position for block in current frame
@@ -375,77 +375,77 @@ inline bool attemptLinkedListVoxelBlockCreation(size_t & hashedBucketIndex, Bloc
 * space in hashTable then return to be processed in next frame
 */
 __global__
-void allocateVoxelBlocks(Vector3f * voxelBlocks_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, bool * unallocatedPoints_d, int * size_d, int * unallocatedPointsCount_d)
+void allocateVoxelBlocks(Vector3f * voxel_blocks_d, HashTable * hash_table_d, BlockHeap * block_heap_d, bool * unallocated_points_d, int * size_d, int * unallocated_points_count_d)
 {
-  int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
-  //check that the thread is a valid index in voxelBlocks_d and that the block is still unallocated
-  if(threadIndex>=*size_d || (unallocatedPoints_d[threadIndex]==0)){
+  int thread_index = (blockIdx.x*threads_per_cuda_block + threadIdx.x);
+  //check that the thread is a valid index in voxel_blocks_d and that the block is still unallocated
+  if(thread_index>=*size_d || (unallocated_points_d[thread_index]==0)){
     return;
   }
-  Vector3f voxelBlock = voxelBlocks_d[threadIndex];
+  Vector3f voxel_block = voxel_blocks_d[thread_index];
 
-  size_t hashedBucketIndex = retrieveHashIndexFromPoint(voxelBlock);
+  size_t hashed_bucket_index = retrieveHashIndexFromPoint(voxel_block);
   //beginning of the hashedBucket in hashTable
-  size_t currentGlobalIndex = hashedBucketIndex * HASH_ENTRIES_PER_BUCKET;
-  HashEntry * hashEntries = hashTable_d->hashEntries;
+  size_t current_global_index = hashed_bucket_index * HASH_ENTRIES_PER_BUCKET;
+  HashEntry * hash_entries = hash_table_d->hash_entries;
 
-  int block_position = getBlockPositionForBlockCoordinates(voxelBlock, hashedBucketIndex, currentGlobalIndex, hashEntries);
+  int block_position = getBlockPositionForBlockCoordinates(voxel_block, hashed_bucket_index, current_global_index, hash_entries);
 
   //block is already allocated then return
   if(block_position!=-1){
-    unallocatedPoints_d[threadIndex] = 0;
-    atomicSub(unallocatedPointsCount_d, 1);
+    unallocated_points_d[thread_index] = 0;
+    atomicSub(unallocated_points_count_d, 1);
     return;
   }
 
   //attempt to get lock for hashed bucket for potential insert
-  if(!atomicCAS(&hashTable_d->mutex[hashedBucketIndex], 0, 1)){
+  if(!atomicCAS(&hash_table_d->mutex[hashed_bucket_index], 0, 1)){
     //try to insert block into the bucket it hashed to and return if possible
-    if(attemptHashedBucketVoxelBlockCreation(hashedBucketIndex, blockHeap_d, voxelBlock, hashEntries)) {
+    if(attempHashedBucketVoxelBlockCreation(hashed_bucket_index, block_heap_d, voxel_block, hash_entries)) {
       //the block is allocated so set it to allocated so it is not processed again in another frame
-      unallocatedPoints_d[threadIndex] = 0;
+      unallocated_points_d[thread_index] = 0;
       //subtract 1 from count of unallocated blocks
-      atomicSub(unallocatedPointsCount_d, 1);
+      atomicSub(unallocated_points_count_d, 1);
       //free lock for hashed bucket
-      atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
+      atomicExch(&hash_table_d->mutex[hashed_bucket_index], 0);
       return;
     }
 
     //start searching for a free position in the next bucket
-    size_t insertBucketIndex = hashedBucketIndex + 1;
+    size_t insert_bucket_index = hashed_bucket_index + 1;
     //set insertBucket to first bucket if overflow the hash table size
-    if(insertBucketIndex == NUM_BUCKETS){
-      insertBucketIndex = 0;
+    if(insert_bucket_index == NUM_BUCKETS){
+      insert_bucket_index = 0;
     }
 
     //Note: current global index will point to end of linked list which includes hashed bucket if no linked list
     //index to the bucket which contains the end of the linked list for the hashed bucket of the block
-    size_t endLinkedListBucket = currentGlobalIndex / HASH_ENTRIES_PER_BUCKET;
+    size_t end_linked_list_bucket = current_global_index / HASH_ENTRIES_PER_BUCKET;
 
-    bool haveEndLinkedListBucketLock = true;
+    bool have_end_linked_list_bucket_lock = true;
 
     //if end of linked list is in different bucket than hashed bucket try to get the lock for the end of the linked list
-    if(endLinkedListBucket!=hashedBucketIndex){
+    if(end_linked_list_bucket!=hashed_bucket_index){
       //release lock of the hashedBucket
-      atomicExch(&hashTable_d->mutex[hashedBucketIndex], 0);
+      atomicExch(&hash_table_d->mutex[hashed_bucket_index], 0);
       //attempt to get lock of bucket with end of linked list
-      haveEndLinkedListBucketLock = !atomicCAS(&hashTable_d->mutex[endLinkedListBucket], 0, 1);
+      have_end_linked_list_bucket_lock = !atomicCAS(&hash_table_d->mutex[end_linked_list_bucket], 0, 1);
     }
 
-    if(haveEndLinkedListBucketLock){
+    if(have_end_linked_list_bucket_lock){
       //try to insert block into the linked list for it's hashed bucket
-      if(attemptLinkedListVoxelBlockCreation(hashedBucketIndex, blockHeap_d, hashTable_d, insertBucketIndex, currentGlobalIndex, voxelBlock, hashEntries)){
+      if(attemptLinkedListVoxelBlockCreation(hashed_bucket_index, block_heap_d, hash_table_d, insert_bucket_index, current_global_index, voxel_block, hash_entries)){
         //the block is allocated so set it to allocated so it is not processed again in another frame
-        unallocatedPoints_d[threadIndex] = 0;
+        unallocated_points_d[thread_index] = 0;
         //subtract 1 from count of unallocated blocks
-        atomicSub(unallocatedPointsCount_d, 1); 
+        atomicSub(unallocated_points_count_d, 1); 
         //free the lock of the end of linked list bucket and insert bucket
-        atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
-        atomicExch(&hashTable_d->mutex[insertBucketIndex], 0);
+        atomicExch(&hash_table_d->mutex[end_linked_list_bucket], 0);
+        atomicExch(&hash_table_d->mutex[insert_bucket_index], 0);
       }
       else{
         //free the lock of the end of linked list bucket
-        atomicExch(&hashTable_d->mutex[endLinkedListBucket], 0);
+        atomicExch(&hash_table_d->mutex[end_linked_list_bucket], 0);
       }
       return;
     }
@@ -483,10 +483,10 @@ inline float dotProduct(Vector3f a, Vector3f b){
 * http://helenol.github.io/publications/iros_2017_voxblox.pdf for more info
 */
 __device__
-inline float getDistanceUpdate(Vector3f voxelCoordinates, Vector3f point_d, Vector3f origin){
+inline float getDistanceUpdate(Vector3f voxel_coordinates, Vector3f point_d, Vector3f origin){
   //x:center of current voxel   p:position of lidar point   s:sensor origin
   Vector3f lidarOriginDiff = point_d - origin; //p-s
-  Vector3f lidarVoxelDiff = point_d - voxelCoordinates; //p-x
+  Vector3f lidarVoxelDiff = point_d - voxel_coordinates; //p-x
   float magnitudeLidarVoxelDiff = getMagnitude(lidarVoxelDiff);
   float dotProd = dotProduct(lidarOriginDiff, lidarVoxelDiff);
   if(dotProd < 0){
@@ -499,57 +499,63 @@ inline float getDistanceUpdate(Vector3f voxelCoordinates, Vector3f point_d, Vect
 __device__
 inline float getWeightUpdate(float distance){
   return 1/(fabs(distance) + 1);
+  // if(distance >= 0){
+  //   return 1/(distance + 1);
+  // }
+  // else{
+  //   return (1/pow(fabs(distance) + 1, 2));
+  // }
 }
 
 /*
 * update voxels sdf and weight that are within truncation distance of the line between origin and point_d
 */
 __global__
-void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * point_d, Vector3f * origin, int * size){
-  int threadIndex = blockIdx.x*threadsPerCudaBlock + threadIdx.x;
-  if(threadIndex >= * size){
+void updateVoxels(Vector3f * voxels, HashTable * hash_table_d, BlockHeap * block_heap_d, Vector3f * point_d, Vector3f * origin, int * size){
+  int thread_index = blockIdx.x*threads_per_cuda_block + threadIdx.x;
+  if(thread_index >= * size){
     return;
   }
-  Vector3f voxelCoordinates = voxels[threadIndex];
-  Vector3f voxelBlockCoordinates = getVolumeCenterFromPoint(voxelCoordinates, VOXEL_BLOCK_SIZE);
+  Vector3f voxel_coordinates = voxels[thread_index];
+  Vector3f voxel_block_coordinates = getVolumeCenterFromPoint(voxel_coordinates, VOXEL_BLOCK_SIZE);
 
-  size_t bucketIndex = retrieveHashIndexFromPoint(voxelBlockCoordinates);
-  size_t currentGlobalIndex = bucketIndex * HASH_ENTRIES_PER_BUCKET;
-  HashEntry * hashEntries = hashTable_d->hashEntries;
+  size_t bucketIndex = retrieveHashIndexFromPoint(voxel_block_coordinates);
+  size_t current_global_index = bucketIndex * HASH_ENTRIES_PER_BUCKET;
+  HashEntry * hash_entries = hash_table_d->hash_entries;
 
   //todo: make a global vector with half voxel block size values
-  int voxelBlockHeapPosition = getBlockPositionForBlockCoordinates(voxelBlockCoordinates, bucketIndex, currentGlobalIndex, hashEntries);
-  Vector3f voxelBlockBottomLeftCoordinates;
-  voxelBlockBottomLeftCoordinates(0) = voxelBlockCoordinates(0)-HALF_VOXEL_BLOCK_SIZE;
-  voxelBlockBottomLeftCoordinates(1) = voxelBlockCoordinates(1)-HALF_VOXEL_BLOCK_SIZE;
-  voxelBlockBottomLeftCoordinates(2) = voxelBlockCoordinates(2)-HALF_VOXEL_BLOCK_SIZE;
+  int voxel_block_heap_position = getBlockPositionForBlockCoordinates(voxel_block_coordinates, bucketIndex, current_global_index, hash_entries);
+  Vector3f voxel_block_bottom_left_coordinates;
+  voxel_block_bottom_left_coordinates(0) = voxel_block_coordinates(0)-HALF_VOXEL_BLOCK_SIZE;
+  voxel_block_bottom_left_coordinates(1) = voxel_block_coordinates(1)-HALF_VOXEL_BLOCK_SIZE;
+  voxel_block_bottom_left_coordinates(2) = voxel_block_coordinates(2)-HALF_VOXEL_BLOCK_SIZE;
   //get local positin of voxel in its block
-  size_t localVoxelIndex = getLocalVoxelIndex(voxelCoordinates - voxelBlockBottomLeftCoordinates);
+  size_t local_voxel_index = getLocalVoxelIndex(voxel_coordinates - voxel_block_bottom_left_coordinates);
 
-  VoxelBlock * block = &(blockHeap_d->blocks[voxelBlockHeapPosition]);
-  Voxel* voxel = &(block->voxels[localVoxelIndex]);
-  int * mutex = &(block->mutex[localVoxelIndex]);
+  VoxelBlock * block = &(block_heap_d->blocks[voxel_block_heap_position]);
+  Voxel* voxel = &(block->voxels[local_voxel_index]);
+  int * mutex = &(block->mutex[local_voxel_index]);
 
-  float distance = getDistanceUpdate(voxelCoordinates, *point_d, *origin);
+  float distance = getDistanceUpdate(voxel_coordinates, *point_d, *origin);
   float weight = getWeightUpdate(distance);
-  float weightTimesDistance = weight * distance;
+  float weight_times_distance = weight * distance;
 
   //get lock for voxel
   // TODO: Remove infinite loop hack
   int i = 0;
-  bool updatedVoxel = false;
-  while(!updatedVoxel){
+  bool updated_voxel = false;
+  while(!updated_voxel){
     //get lock for voxel
     if(!atomicCAS(mutex, 0, 1)){
-      updatedVoxel = true;
+      updated_voxel = true;
       //update sdf and weight
-      float oldWeight = voxel->weight;
-      float oldSdf = voxel->sdf;
-      float newWeight = oldWeight + weight;
-      float newDistance = (oldWeight * oldSdf + weightTimesDistance) / newWeight;
-      voxel->sdf = newDistance;
-      newWeight = min(newWeight, MAX_WEIGHT);
-      voxel->weight = newWeight;
+      float old_weight = voxel->weight;
+      float old_sdf = voxel->sdf;
+      float new_weight = old_weight + weight;
+      float new_distance = (old_weight * old_sdf + weight_times_distance) / new_weight;
+      voxel->sdf = new_distance;
+      new_weight = min(new_weight, MAX_WEIGHT);
+      voxel->weight = new_weight;
       //free voxel
       atomicExch(mutex, 0);
     }
@@ -566,15 +572,15 @@ void updateVoxels(Vector3f * voxels, HashTable * hashTable_d, BlockHeap * blockH
 * Get voxels traversed on ray between origin and a lidar point within truncation distance of lidar point
 */
 __global__
-void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, int * size_d){
-  int threadIndex = (blockIdx.x*threadsPerCudaBlock + threadIdx.x);
-  // if(threadIndex>0){
+void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d, HashTable * hash_table_d, BlockHeap * block_heap_d, int * size_d){
+  int thread_index = (blockIdx.x*threads_per_cuda_block + threadIdx.x);
+  // if(thread_index>0){
   //   return;
   // }
-  if(threadIndex>=*size_d){
+  if(thread_index>=*size_d){
     return;
   }
-  pcl::PointXYZ point_d = points_d[threadIndex];
+  pcl::PointXYZ point_d = points_d[thread_index];
   Vector3f truncation_start;
   Vector3f truncation_end;
 
@@ -600,8 +606,8 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
   Vector3f * lidarPoint = new Vector3f(point_d.x, point_d.y, point_d.z);
 
   //update the voxels sdf and weight values
-  int numCudaBlocks = *size/threadsPerCudaBlock + 1;
-  updateVoxels<<<numCudaBlocks, threadsPerCudaBlock>>>(voxels, hashTable_d, blockHeap_d, lidarPoint, origin_transformed_d, size);
+  int num_cuda_blocks = *size/threads_per_cuda_block + 1;
+  updateVoxels<<<num_cuda_blocks, threads_per_cuda_block>>>(voxels, hash_table_d, block_heap_d, lidarPoint, origin_transformed_d, size);
   cdpErrchk(cudaPeekAtLastError());
   cudaDeviceSynchronize();
 
@@ -615,10 +621,10 @@ void getVoxelsForPoint(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d
 * determines if voxel is within publishing distance of drone
 */
 __device__
-inline bool withinDistanceSquared(Vector3f & a, Vector3f & b, float thresholdDistanceSquared){
+inline bool withinDistanceSquared(Vector3f & a, Vector3f & b, float threshold_distance_squared){
   Vector3f diff = b - a;
-  float distanceSquared  = pow(diff(0), 2) + pow(diff(1), 2) + pow(diff(2), 2);
-  if(distanceSquared <= thresholdDistanceSquared){
+  float distance_squared  = pow(diff(0), 2) + pow(diff(1), 2) + pow(diff(2), 2);
+  if(distance_squared <= threshold_distance_squared){
     return true;
   }
   return false;
@@ -628,14 +634,14 @@ inline bool withinDistanceSquared(Vector3f & a, Vector3f & b, float thresholdDis
 * Get voxels that are occupied in a voxel block
 */
 __global__
-void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d, Vector3f * position, VoxelBlock * block){
-  int threadIndex = blockIdx.x*threadsPerCudaBlock + threadIdx.x;
-  if(threadIndex >= VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE){
+void processOccupiedVoxelBlock(Vector3f * occupied_voxels, int * index, Voxel * sdf_weight_voxel_vals_d, Vector3f * position, VoxelBlock * block){
+  int thread_index = blockIdx.x*threads_per_cuda_block + threadIdx.x;
+  if(thread_index >= VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE){
     return;
   }
 
-  int voxelIndex = threadIndex;
-  Voxel voxel = block->voxels[threadIndex];
+  int voxelIndex = thread_index;
+  Voxel voxel = block->voxels[thread_index];
   //if voxel is occupied
   if(voxel.weight!=0){
     //get coordinates of voxel
@@ -646,16 +652,16 @@ void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * s
     float x = voxelIndex;
 
     Vector3f positionVec = * position;
-    float xCoord = x * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(0);
-    float yCoord = y * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(1);
-    float zCoord = z * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(2);
+    float x_coord = x * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(0);
+    float y_coord = y * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(1);
+    float z_coord = z * VOXEL_SIZE + HALF_VOXEL_SIZE + positionVec(2);
   
-    Vector3f v(xCoord, yCoord, zCoord);
+    Vector3f v(x_coord, y_coord, z_coord);
     //if within publish distance add voxel to list of occupied voxel and its position
-    int occupiedVoxelIndex = atomicAdd(&(*index), 1);
-    if(occupiedVoxelIndex<OCCUPIED_VOXELS_SIZE){
-      occupiedVoxels[occupiedVoxelIndex] = v;
-      sdfWeightVoxelVals_d[occupiedVoxelIndex] = voxel;
+    int occupied_voxel_index = atomicAdd(&(*index), 1);
+    if(occupied_voxel_index<OCCUPIED_VOXELS_SIZE){
+      occupied_voxels[occupied_voxel_index] = v;
+      sdf_weight_voxel_vals_d[occupied_voxel_index] = voxel;
     }
   }
 }
@@ -664,26 +670,26 @@ void processOccupiedVoxelBlock(Vector3f * occupiedVoxels, int * index, Voxel * s
 * check hashtable in parallel if there is an allocated block at the thread index and if so process the block to retrieve occupied voxels
 */
 __global__
-void publishOccupiedVoxelsCuda(Vector3f * origin_transformed_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * occupiedVoxels, int * index, Voxel * sdfWeightVoxelVals_d){
-  int threadIndex = blockIdx.x*threadsPerCudaBlock +threadIdx.x;
-  if(threadIndex >= HASH_TABLE_SIZE) return;
-  HashEntry hashEntry = hashTable_d->hashEntries[threadIndex];
-  if(hashEntry.isFree()){
+void publish_occupied_voxelsCuda(Vector3f * origin_transformed_d, HashTable * hash_table_d, BlockHeap * block_heap_d, Vector3f * occupied_voxels, int * index, Voxel * sdf_weight_voxel_vals_d){
+  int thread_index = blockIdx.x*threads_per_cuda_block +threadIdx.x;
+  if(thread_index >= HASH_TABLE_SIZE) return;
+  HashEntry hash_entry = hash_table_d->hash_entries[thread_index];
+  if(hash_entry.isFree()){
     return;
   }
-  Vector3f blockPos = hashEntry.position;
-  if(withinDistanceSquared(blockPos, *origin_transformed_d, PUBLISH_DISTANCE_SQUARED)){
-    int pointer = hashEntry.pointer;
-    Vector3f * bottomLeftBlockPos = new Vector3f(blockPos(0) - HALF_VOXEL_BLOCK_SIZE, 
-    blockPos(1)- HALF_VOXEL_BLOCK_SIZE,
-    blockPos(2)- HALF_VOXEL_BLOCK_SIZE);
+  Vector3f block_pos = hash_entry.position;
+  if(withinDistanceSquared(block_pos, *origin_transformed_d, PUBLISH_DISTANCE_SQUARED)){
+    int pointer = hash_entry.pointer;
+    Vector3f * bottom_left_block_pos = new Vector3f(block_pos(0) - HALF_VOXEL_BLOCK_SIZE, 
+    block_pos(1)- HALF_VOXEL_BLOCK_SIZE,
+    block_pos(2)- HALF_VOXEL_BLOCK_SIZE);
   
-    VoxelBlock * block = &(blockHeap_d->blocks[pointer]);
+    VoxelBlock * block = &(block_heap_d->blocks[pointer]);
     int size = VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE;
-    int numBlocks = size/threadsPerCudaBlock + 1;
-    processOccupiedVoxelBlock<<<numBlocks,threadsPerCudaBlock>>>(occupiedVoxels, index, sdfWeightVoxelVals_d, bottomLeftBlockPos, block);
+    int num_blocks = size/threads_per_cuda_block + 1;
+    processOccupiedVoxelBlock<<<num_blocks,threads_per_cuda_block>>>(occupied_voxels, index, sdf_weight_voxel_vals_d, bottom_left_block_pos, block);
     cdpErrchk(cudaPeekAtLastError());
-    cudaFree(bottomLeftBlockPos);
+    cudaFree(bottom_left_block_pos);
   }
 }
 
@@ -691,129 +697,129 @@ void publishOccupiedVoxelsCuda(Vector3f * origin_transformed_d, HashTable * hash
 * Remove blocks further than garbage collection distance away from lidar point
 */
 __global__
-void garbageCollect(Vector3f * origin_transformed_d, HashTable * hashTable_d, BlockHeap * blockHeap_d, int * removedBlocksCounts, Vector3f * linkedListDistantBlocks, int * linkedListDistantBlocksCount){
-  int threadIndex = blockIdx.x*threadsPerCudaBlock +threadIdx.x;
-  if(threadIndex >= HASH_TABLE_SIZE) return;
-  HashEntry * hashEntry = &hashTable_d->hashEntries[threadIndex];
-  if(hashEntry->isFree()){
+void garbageCollect(Vector3f * origin_transformed_d, HashTable * hash_table_d, BlockHeap * block_heap_d, int * removed_blocks_count, Vector3f * linked_list_distanct_blocks, int * linked_list_distance_block_count){
+  int thread_index = blockIdx.x*threads_per_cuda_block +threadIdx.x;
+  if(thread_index >= HASH_TABLE_SIZE) return;
+  HashEntry * hash_entry = &hash_table_d->hash_entries[thread_index];
+  if(hash_entry->isFree()){
     return;
   }
-  Vector3f blockPosition = hashEntry->position;
+  Vector3f block_pos = hash_entry->position;
   //check if point is far away from lidar to remove
-  if(!withinDistanceSquared(blockPosition, *origin_transformed_d, GARBAGE_COLLECT_DISTANCE_SQUARED))
+  if(!withinDistanceSquared(block_pos, *origin_transformed_d, GARBAGE_COLLECT_DISTANCE_SQUARED))
   {
-    size_t hashedBucketIndex = retrieveHashIndexFromPoint(blockPosition);
-    size_t threadBucketIndex = threadIndex / HASH_ENTRIES_PER_BUCKET;
-    if((hashedBucketIndex!=threadBucketIndex) || (hashEntry->offset > 0)){ // if hash entry is in linked list process later
-      int index = atomicAdd(&(*linkedListDistantBlocksCount), 1);
+    size_t hashed_bucket_index = retrieveHashIndexFromPoint(block_pos);
+    size_t thread_bucket_index = thread_index / HASH_ENTRIES_PER_BUCKET;
+    if((hashed_bucket_index!=thread_bucket_index) || (hash_entry->offset > 0)){ // if hash entry is in linked list process later
+      int index = atomicAdd(&(*linked_list_distance_block_count), 1);
       if(index<MAX_LINKED_LIST_BLOCKS){
-        linkedListDistantBlocks[index] = blockPosition;
+        linked_list_distanct_blocks[index] = block_pos;
       }
     }
     else{
-      hashEntry->setFree();
-      int blockHeapPosition = hashEntry->pointer;
-      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
-      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
-      atomicAdd(&(*removedBlocksCounts), 1);
+      hash_entry->setFree();
+      int block_heap_pos = hash_entry->pointer;
+      int free_blocks_insert_index = atomicSub(&(block_heap_d->current_index), 1);
+      block_heap_d->free_blocks[free_blocks_insert_index-1] = block_heap_pos;
+      atomicAdd(&(*removed_blocks_count), 1);
     }
   }
-  hashEntry = NULL;
-  delete hashEntry;
+  hash_entry = NULL;
+  delete hash_entry;
 }
 
 /*
 * Remove blocks further than garbage collection distance away from lidar point whose hash entries are a part of a linked list
 */
 __global__
-void linkedListGarbageCollect(HashTable * hashTable_d, BlockHeap * blockHeap_d, Vector3f * linkedListDistantBlocks, int * linkedListDistantBlocksCount){
+void linkedListGarbageCollect(HashTable * hash_table_d, BlockHeap * block_heap_d, Vector3f * linked_list_distanct_blocks, int * linked_list_distance_block_count){
 
-  HashEntry * hashEntries = hashTable_d->hashEntries;
-  HashEntry * currHashEntry = NULL;
-  HashEntry * prevHashEntry = NULL;
-  HashEntry * nextHashEntry = NULL;
+  HashEntry * hash_entries = hash_table_d->hash_entries;
+  HashEntry * curr_hash_entry = NULL;
+  HashEntry * prev_hash_entry = NULL;
+  HashEntry * next_hash_entry = NULL;
 
-  for(int i=0;i<*linkedListDistantBlocksCount; ++i){ //loop through linked list points and process sequentially so no issues with having to lock other buckets
-    Vector3f removeBlockPosition = linkedListDistantBlocks[i];
-    int hashedBucketIndex = retrieveHashIndexFromPoint(removeBlockPosition);
+  for(int i=0;i<*linked_list_distance_block_count; ++i){ //loop through linked list points and process sequentially so no issues with having to lock other buckets
+    Vector3f remove_block_pos = linked_list_distanct_blocks[i];
+    int hashed_bucket_index = retrieveHashIndexFromPoint(remove_block_pos);
     //initialize to head of linked list
-    int currIndex = (hashedBucketIndex + 1) * HASH_ENTRIES_PER_BUCKET - 1;
-    currHashEntry = &hashEntries[currIndex];
-    prevHashEntry = NULL;
+    int curr_index = (hashed_bucket_index + 1) * HASH_ENTRIES_PER_BUCKET - 1;
+    curr_hash_entry = &hash_entries[curr_index];
+    prev_hash_entry = NULL;
 
-    if(checkFloatingPointVectorsEqual(currHashEntry->position, removeBlockPosition, BLOCK_EPSILON)){ //if the hash entry is the head of the linked list
-      int prevHeadOffset = currHashEntry->offset;
-      int blockHeapPosition = currHashEntry->pointer;
-      int nextIndex = currIndex + prevHeadOffset;
-      if(nextIndex >= HASH_TABLE_SIZE){
-        nextIndex %= HASH_TABLE_SIZE;
+    if(checkFloatingPointVectorsEqual(curr_hash_entry->position, remove_block_pos, BLOCK_EPSILON)){ //if the hash entry is the head of the linked list
+      int prev_head_offset = curr_hash_entry->offset;
+      int block_heap_pos = curr_hash_entry->pointer;
+      int next_index = curr_index + prev_head_offset;
+      if(next_index >= HASH_TABLE_SIZE){
+        next_index %= HASH_TABLE_SIZE;
       }
-      nextHashEntry = &hashEntries[nextIndex];
+      next_hash_entry = &hash_entries[next_index];
 
-      Vector3f nextHashEntryPosition = nextHashEntry->position;
+      Vector3f next_hash_entry_pos = next_hash_entry->position;
 
-      int nextHashEntryOffset = nextHashEntry->offset;
-      int nextHashEntryPointer = nextHashEntry->pointer;
-      currHashEntry->position = nextHashEntryPosition;
-      currHashEntry->pointer = nextHashEntryPointer;
-      if(nextHashEntryOffset!=0){
-        int newOffset = prevHeadOffset + nextHashEntryOffset;
-        currHashEntry->offset = newOffset;
+      int next_hash_entry_offset = next_hash_entry->offset;
+      int next_hash_entry_pointer = next_hash_entry->pointer;
+      curr_hash_entry->position = next_hash_entry_pos;
+      curr_hash_entry->pointer = next_hash_entry_pointer;
+      if(next_hash_entry_offset!=0){
+        int new_offset = prev_head_offset + next_hash_entry_offset;
+        curr_hash_entry->offset = new_offset;
       }
       else{
-        currHashEntry->offset = 0;
+        curr_hash_entry->offset = 0;
       }
-      nextHashEntry->setFree();
-      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
-      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+      next_hash_entry->setFree();
+      int free_blocks_insert_index = atomicSub(&(block_heap_d->current_index), 1);
+      block_heap_d->free_blocks[free_blocks_insert_index-1] = block_heap_pos;
       continue;
     }
 
-    while(!checkFloatingPointVectorsEqual(currHashEntry->position, removeBlockPosition, BLOCK_EPSILON)){ //hash entry is a middle or end element of linked list
-      currIndex += (int) currHashEntry->offset;
-      if(currIndex >= HASH_TABLE_SIZE){
-        currIndex %= HASH_TABLE_SIZE;
+    while(!checkFloatingPointVectorsEqual(curr_hash_entry->position, remove_block_pos, BLOCK_EPSILON)){ //hash entry is a middle or end element of linked list
+      curr_index += (int) curr_hash_entry->offset;
+      if(curr_index >= HASH_TABLE_SIZE){
+        curr_index %= HASH_TABLE_SIZE;
       }
-      prevHashEntry = currHashEntry;
-      currHashEntry = &hashEntries[currIndex];
+      prev_hash_entry = curr_hash_entry;
+      curr_hash_entry = &hash_entries[curr_index];
     }
 
-    int currOffset = currHashEntry->offset;
-    int prevHashOffset = prevHashEntry->offset;
-    int newOffset = prevHashOffset + currOffset;
+    int curr_offset = curr_hash_entry->offset;
+    int prev_hash_offset = prev_hash_entry->offset;
+    int new_offset = prev_hash_offset + curr_offset;
 
-    if(currOffset > 0){
-      prevHashEntry->offset = newOffset;
-      currHashEntry->setFree();
-      int blockHeapPosition = currHashEntry->pointer;
-      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
-      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+    if(curr_offset > 0){
+      prev_hash_entry->offset = new_offset;
+      curr_hash_entry->setFree();
+      int block_heap_pos = curr_hash_entry->pointer;
+      int free_blocks_insert_index = atomicSub(&(block_heap_d->current_index), 1);
+      block_heap_d->free_blocks[free_blocks_insert_index-1] = block_heap_pos;
     }
     else{
-      prevHashEntry->offset = 0;
-      currHashEntry->setFree();
-      int blockHeapPosition = currHashEntry->pointer;
-      int freeBlocksInsertIndex = atomicSub(&(blockHeap_d->currentIndex), 1);
-      blockHeap_d->freeBlocks[freeBlocksInsertIndex-1] = blockHeapPosition;
+      prev_hash_entry->offset = 0;
+      curr_hash_entry->setFree();
+      int block_heap_pos = curr_hash_entry->pointer;
+      int free_blocks_insert_index = atomicSub(&(block_heap_d->current_index), 1);
+      block_heap_d->free_blocks[free_blocks_insert_index-1] = block_heap_pos;
     }
   }
-  currHashEntry = prevHashEntry = nextHashEntry = hashEntries = NULL;
-  delete(currHashEntry);
-  delete(prevHashEntry);
-  delete(nextHashEntry);
-  delete(hashEntries);
+  curr_hash_entry = prev_hash_entry = next_hash_entry = hash_entries = NULL;
+  delete(curr_hash_entry);
+  delete(prev_hash_entry);
+  delete(next_hash_entry);
+  delete(hash_entries);
 }
 
 TSDFHandler::TSDFHandler(){
-  tsdfContainer = new TSDFContainer();
+  tsdf_container = new TSDFContainer();
   cudaMalloc(&occupied_voxels_d, sizeof(Vector3f)*OCCUPIED_VOXELS_SIZE);
-  cudaMalloc(&sdfWeightVoxelVals_d, sizeof(Voxel)*OCCUPIED_VOXELS_SIZE);
+  cudaMalloc(&sdf_weight_voxel_vals_d, sizeof(Voxel)*OCCUPIED_VOXELS_SIZE);
 }
 
 TSDFHandler::~TSDFHandler(){
-  free(tsdfContainer);
+  free(tsdf_container);
   cudaFree(occupied_voxels_d);
-  cudaFree(sdfWeightVoxelVals_d);
+  cudaFree(sdf_weight_voxel_vals_d);
 }
 
 /*
@@ -843,8 +849,8 @@ void TSDFHandler::processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ
   cudaMemcpy(origin_transformed_d, origin_transformed_h,sizeof(*origin_transformed_h),cudaMemcpyHostToDevice);
   gpuErrchk(cudaPeekAtLastError());
 
-  HashTable * hash_table_d = tsdfContainer->getCudaHashTable();
-  BlockHeap * block_heap_d = tsdfContainer->getCudaBlockHeap();
+  HashTable * hash_table_d = tsdf_container->getCudaHashTable();
+  BlockHeap * block_heap_d = tsdf_container->getCudaBlockHeap();
 
   allocateVoxelBlocksAndUpdateVoxels(points_d, origin_transformed_d, pointcloud_size_d, pointcloud_size, hash_table_d, block_heap_d);
 
@@ -868,20 +874,20 @@ void TSDFHandler::allocateVoxelBlocksAndUpdateVoxels(pcl::PointXYZ * points_d, V
     //TODO: FIX
   // int maxBlocksPerPoint = ceil(pow(TRUNCATION_DISTANCE,3) / pow(VOXEL_BLOCK_SIZE, 3));
   //the max number of voxel blocks that are allocated per point cloud frame
-  int maxBlocks = 100 * pointcloud_size; //todo: hardcoded
-  Vector3f pointcloud_voxel_blocks_h[maxBlocks];
+  int max_blocks = 100 * pointcloud_size; //todo: hardcoded
+  Vector3f pointcloud_voxel_blocks_h[max_blocks];
   Vector3f * pointcloud_voxel_blocks_d;
   int * pointcloud_voxel_blocks_h_index = new int(0); //keep track of number of voxel blocks allocated
   int * pointcloud_voxel_blocks_d_index;
-  cudaMalloc(&pointcloud_voxel_blocks_d, sizeof(*pointcloud_voxel_blocks_h)*maxBlocks);
+  cudaMalloc(&pointcloud_voxel_blocks_d, sizeof(*pointcloud_voxel_blocks_h)*max_blocks);
   gpuErrchk(cudaPeekAtLastError());
-  cudaMemcpy(pointcloud_voxel_blocks_d, pointcloud_voxel_blocks_h, sizeof(*pointcloud_voxel_blocks_h)*maxBlocks,cudaMemcpyHostToDevice); //need to memcpy?
+  cudaMemcpy(pointcloud_voxel_blocks_d, pointcloud_voxel_blocks_h, sizeof(*pointcloud_voxel_blocks_h)*max_blocks,cudaMemcpyHostToDevice); //need to memcpy?
   gpuErrchk(cudaPeekAtLastError());
   cudaMalloc(&pointcloud_voxel_blocks_d_index, sizeof(*pointcloud_voxel_blocks_h_index));
   gpuErrchk(cudaPeekAtLastError());
   cudaMemcpy(pointcloud_voxel_blocks_d_index, pointcloud_voxel_blocks_h_index, sizeof(*pointcloud_voxel_blocks_h_index), cudaMemcpyHostToDevice);
 
-  int num_cuda_blocks = pointcloud_size / threadsPerCudaBlock + 1;
+  int num_cuda_blocks = pointcloud_size / threads_per_cuda_block + 1;
 
   getVoxelBlocks(num_cuda_blocks, points_d, pointcloud_voxel_blocks_d, pointcloud_voxel_blocks_d_index, origin_transformed_d, pointcloud_size_d);
 
@@ -906,7 +912,7 @@ void TSDFHandler::getVoxelBlocks(int num_cuda_blocks, pcl::PointXYZ * points_d, 
   cudaEventCreate(&stop);
   cudaEventRecord(start);
 
-  getVoxelBlocksForPoint<<<num_cuda_blocks,threadsPerCudaBlock>>>(points_d, pointcloud_voxel_blocks_d, pointcloud_voxel_blocks_d_index, origin_transformed_d, pointcloud_size_d);
+  getVoxelBlocksForPoint<<<num_cuda_blocks,threads_per_cuda_block>>>(points_d, pointcloud_voxel_blocks_d, pointcloud_voxel_blocks_d_index, origin_transformed_d, pointcloud_size_d);
   gpuErrchk(cudaPeekAtLastError());
   cudaDeviceSynchronize();
 
@@ -932,40 +938,40 @@ void TSDFHandler::integrateVoxelBlockPointsIntoHashTable(Vector3f * points_d, in
   int size = * size_h;
 
   //array to keep track of unallocated blocks so in multiple kernel calls further down can keep track of blocks that still need to be allocated
-  bool * unallocatedPoints_h = new bool[size];
+  bool * unallocated_points_h = new bool[size];
   for(int i=0;i<size;++i)
   {
-    unallocatedPoints_h[i] = 1;
+    unallocated_points_h[i] = 1;
   }
 
-  bool * unallocatedPoints_d;
-  cudaMalloc(&unallocatedPoints_d, sizeof(*unallocatedPoints_h)*size);
-  cudaMemcpy(unallocatedPoints_d, unallocatedPoints_h, sizeof(*unallocatedPoints_h)*size, cudaMemcpyHostToDevice);
+  bool * unallocated_points_d;
+  cudaMalloc(&unallocated_points_d, sizeof(*unallocated_points_h)*size);
+  cudaMemcpy(unallocated_points_d, unallocated_points_h, sizeof(*unallocated_points_h)*size, cudaMemcpyHostToDevice);
 
   //keep track of number of unallocated blocks still left to be allocated
-  int * unallocatedPointsCount_h = new int(size);
-  int * unallocatedPointsCount_d;
-  cudaMalloc(&unallocatedPointsCount_d, sizeof(*unallocatedPointsCount_h));
-  cudaMemcpy(unallocatedPointsCount_d, unallocatedPointsCount_h, sizeof(*unallocatedPointsCount_h), cudaMemcpyHostToDevice);
+  int * unallocated_points_count_h = new int(size);
+  int * unallocated_points_count_d;
+  cudaMalloc(&unallocated_points_count_d, sizeof(*unallocated_points_count_h));
+  cudaMemcpy(unallocated_points_count_d, unallocated_points_count_h, sizeof(*unallocated_points_count_h), cudaMemcpyHostToDevice);
 
-  int num_cuda_blocks = size / threadsPerCudaBlock + 1;
+  int num_cuda_blocks = size / threads_per_cuda_block + 1;
   //call kernel till all blocks are allocated
-  while(*unallocatedPointsCount_h > 0){ //POSSIBILITY OF INFINITE LOOP if no applicable space is left for an unallocated block even if there is still space left in hash table
-    allocateVoxelBlocks<<<num_cuda_blocks,threadsPerCudaBlock>>>(points_d, hash_table_d, block_heap_d, unallocatedPoints_d, pointcloud_voxel_blocks_d_index, unallocatedPointsCount_d);
+  while(*unallocated_points_count_h > 0){ //POSSIBILITY OF INFINITE LOOP if no applicable space is left for an unallocated block even if there is still space left in hash table
+    allocateVoxelBlocks<<<num_cuda_blocks,threads_per_cuda_block>>>(points_d, hash_table_d, block_heap_d, unallocated_points_d, pointcloud_voxel_blocks_d_index, unallocated_points_count_d);
     gpuErrchk( cudaPeekAtLastError() );
     cudaDeviceSynchronize();
-    cudaMemcpy(unallocatedPointsCount_h, unallocatedPointsCount_d, sizeof(*unallocatedPointsCount_h), cudaMemcpyDeviceToHost);
+    cudaMemcpy(unallocated_points_count_h, unallocated_points_count_d, sizeof(*unallocated_points_count_h), cudaMemcpyDeviceToHost);
   }
 
   //print total num blocks allocated so far
   printHashTableAndBlockHeap<<<1,1>>>(hash_table_d, block_heap_d);
   cudaDeviceSynchronize();
 
-  cudaFree(unallocatedPoints_d);
-  cudaFree(unallocatedPointsCount_d);
+  cudaFree(unallocated_points_d);
+  cudaFree(unallocated_points_count_d);
   delete size_h;
-  delete unallocatedPoints_h;
-  delete unallocatedPointsCount_h;
+  delete unallocated_points_h;
+  delete unallocated_points_count_h;
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -984,7 +990,7 @@ void TSDFHandler::updateVoxels(int & num_cuda_blocks, pcl::PointXYZ * points_d, 
   cudaEventCreate(&stop);
   cudaEventRecord(start);
 
-  getVoxelsForPoint<<<num_cuda_blocks,threadsPerCudaBlock>>>(points_d, origin_transformed_d, hash_table_d, block_heap_d, pointcloud_size_d);
+  getVoxelsForPoint<<<num_cuda_blocks,threads_per_cuda_block>>>(points_d, origin_transformed_d, hash_table_d, block_heap_d, pointcloud_size_d);
   gpuErrchk( cudaPeekAtLastError() );
   cudaDeviceSynchronize();
 
@@ -1008,14 +1014,14 @@ void TSDFHandler::publishOccupiedVoxels(Vector3f * origin_transformed_d, Vector3
   int occupiedVoxelsSize = OCCUPIED_VOXELS_SIZE;
   cudaMalloc(&occupied_voxels_index_d, sizeof(*occupied_voxels_index));
   cudaMemcpy(occupied_voxels_index_d, occupied_voxels_index, sizeof(*occupied_voxels_index), cudaMemcpyHostToDevice);
-  int numCudaBlocks = HASH_TABLE_SIZE / threadsPerCudaBlock + 1;
-  publishOccupiedVoxelsCuda<<<numCudaBlocks,threadsPerCudaBlock>>>(origin_transformed_d, hash_table_d, block_heap_d, occupied_voxels_d, occupied_voxels_index_d, sdfWeightVoxelVals_d);
+  int num_cuda_blocks = HASH_TABLE_SIZE / threads_per_cuda_block + 1;
+  publish_occupied_voxelsCuda<<<num_cuda_blocks,threads_per_cuda_block>>>(origin_transformed_d, hash_table_d, block_heap_d, occupied_voxels_d, occupied_voxels_index_d, sdf_weight_voxel_vals_d);
   gpuErrchk( cudaPeekAtLastError() );
   cudaDeviceSynchronize();
 
   cudaMemcpy(occupied_voxels_h, occupied_voxels_d, sizeof(*occupied_voxels_h)*occupiedVoxelsSize, cudaMemcpyDeviceToHost);
   cudaMemcpy(occupied_voxels_index, occupied_voxels_index_d, sizeof(int), cudaMemcpyDeviceToHost);
-  cudaMemcpy(sdfWeightVoxelVals_h, sdfWeightVoxelVals_d, sizeof(*sdfWeightVoxelVals_h)*occupiedVoxelsSize, cudaMemcpyDeviceToHost);
+  cudaMemcpy(sdfWeightVoxelVals_h, sdf_weight_voxel_vals_d, sizeof(*sdfWeightVoxelVals_h)*occupiedVoxelsSize, cudaMemcpyDeviceToHost);
 
   cudaFree(occupied_voxels_index_d);
 
@@ -1036,53 +1042,53 @@ void TSDFHandler::garbageCollectDistantBlocks(Vector3f * origin_transformed_d, H
   cudaEventCreate(&stop);
   cudaEventRecord(start);
 
-  int * removedBlocksCount_h = new int(0);
-  int * removedBlocksCount_d;
-  cudaMalloc(&removedBlocksCount_d, sizeof(int));
-  cudaMemcpy(removedBlocksCount_d, removedBlocksCount_h, sizeof(* removedBlocksCount_h), cudaMemcpyHostToDevice);
+  int * removed_blocks_count_h = new int(0);
+  int * removed_blocks_count_d;
+  cudaMalloc(&removed_blocks_count_d, sizeof(int));
+  cudaMemcpy(removed_blocks_count_d, removed_blocks_count_h, sizeof(* removed_blocks_count_h), cudaMemcpyHostToDevice);
 
-  int * linkedListDistantBlocksCount_h = new int(0);
-  int * linkedListDistantBlocksCount_d;
-  cudaMalloc(&linkedListDistantBlocksCount_d, sizeof(int));
-  cudaMemcpy(linkedListDistantBlocksCount_d, linkedListDistantBlocksCount_h, sizeof(* linkedListDistantBlocksCount_h), cudaMemcpyHostToDevice);
+  int * linked_list_distant_blocks_count_h = new int(0);
+  int * linked_list_distant_blocks_count_d;
+  cudaMalloc(&linked_list_distant_blocks_count_d, sizeof(int));
+  cudaMemcpy(linked_list_distant_blocks_count_d, linked_list_distant_blocks_count_h, sizeof(* linked_list_distant_blocks_count_h), cudaMemcpyHostToDevice);
 
-  Vector3f linkedListDistantBlocks_h[MAX_LINKED_LIST_BLOCKS];
-  Vector3f * linkedListDistantBlocks_d;
-  cudaMalloc(&linkedListDistantBlocks_d, sizeof(*linkedListDistantBlocks_h)*MAX_LINKED_LIST_BLOCKS);
-  cudaMemcpy(linkedListDistantBlocks_d, linkedListDistantBlocks_h, sizeof(*linkedListDistantBlocks_h)*MAX_LINKED_LIST_BLOCKS, cudaMemcpyHostToDevice);
+  Vector3f linked_list_distance_blocks_h[MAX_LINKED_LIST_BLOCKS];
+  Vector3f * linked_list_distance_blocks_d;
+  cudaMalloc(&linked_list_distance_blocks_d, sizeof(*linked_list_distance_blocks_h)*MAX_LINKED_LIST_BLOCKS);
+  cudaMemcpy(linked_list_distance_blocks_d, linked_list_distance_blocks_h, sizeof(*linked_list_distance_blocks_h)*MAX_LINKED_LIST_BLOCKS, cudaMemcpyHostToDevice);
 
-  int numCudaBlocks = HASH_TABLE_SIZE / threadsPerCudaBlock + 1;
-  garbageCollect<<<numCudaBlocks, threadsPerCudaBlock>>>(origin_transformed_d, hash_table_d, block_heap_d, removedBlocksCount_d, linkedListDistantBlocks_d, linkedListDistantBlocksCount_d);
+  int num_cuda_blocks = HASH_TABLE_SIZE / threads_per_cuda_block + 1;
+  garbageCollect<<<num_cuda_blocks, threads_per_cuda_block>>>(origin_transformed_d, hash_table_d, block_heap_d, removed_blocks_count_d, linked_list_distance_blocks_d, linked_list_distant_blocks_count_d);
   gpuErrchk(cudaPeekAtLastError());
   cudaDeviceSynchronize();
-  cudaMemcpy(removedBlocksCount_h, removedBlocksCount_d, sizeof(* removedBlocksCount_h), cudaMemcpyDeviceToHost);
-  cudaMemcpy(linkedListDistantBlocksCount_h, linkedListDistantBlocksCount_d, sizeof(* linkedListDistantBlocksCount_h), cudaMemcpyDeviceToHost);
+  cudaMemcpy(removed_blocks_count_h, removed_blocks_count_d, sizeof(* removed_blocks_count_h), cudaMemcpyDeviceToHost);
+  cudaMemcpy(linked_list_distant_blocks_count_h, linked_list_distant_blocks_count_d, sizeof(* linked_list_distant_blocks_count_h), cudaMemcpyDeviceToHost);
 
-  linkedListGarbageCollect<<<1,1>>>(hash_table_d, block_heap_d, linkedListDistantBlocks_d, linkedListDistantBlocksCount_d);
+  linkedListGarbageCollect<<<1,1>>>(hash_table_d, block_heap_d, linked_list_distance_blocks_d, linked_list_distant_blocks_count_d);
   gpuErrchk(cudaPeekAtLastError());
   cudaDeviceSynchronize();
-  cudaMemcpy(linkedListDistantBlocksCount_h, linkedListDistantBlocksCount_d, sizeof(* linkedListDistantBlocksCount_h), cudaMemcpyDeviceToHost);
+  cudaMemcpy(linked_list_distant_blocks_count_h, linked_list_distant_blocks_count_d, sizeof(* linked_list_distant_blocks_count_h), cudaMemcpyDeviceToHost);
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   printf("Garbage Collection Duration: %f\n", milliseconds);
-  // printf("Linked List Blocks Removed: %d\n", *linkedListDistantBlocksCount_h);
-  printf("Total Blocks Removed: %d\n", *removedBlocksCount_h + *linkedListDistantBlocksCount_h);
+  // printf("Linked List Blocks Removed: %d\n", *linked_list_distant_blocks_count_h);
+  printf("Total Blocks Removed: %d\n", *removed_blocks_count_h + *linked_list_distant_blocks_count_h);
 
-  delete removedBlocksCount_h;
-  delete linkedListDistantBlocksCount_h;
-  cudaFree(removedBlocksCount_d);
-  cudaFree(linkedListDistantBlocksCount_d);
-  cudaFree(linkedListDistantBlocks_d);
+  delete removed_blocks_count_h;
+  delete linked_list_distant_blocks_count_h;
+  cudaFree(removed_blocks_count_d);
+  cudaFree(linked_list_distant_blocks_count_d);
+  cudaFree(linked_list_distance_blocks_d);
 }
 
 /*
 * Initialize device global variables
 */
 __global__
-void initializeGlobalVarsCuda(float * voxel_size_d, float * truncation_distance_d, float * max_weight_d, float * publish_distance_squared_d, float * garbage_collect_distance_squared_d){
+void initGlobalVarsCuda(float * voxel_size_d, float * truncation_distance_d, float * max_weight_d, float * publish_distance_squared_d, float * garbage_collect_distance_squared_d){
   VOXEL_SIZE = * voxel_size_d;
   HALF_VOXEL_SIZE = VOXEL_SIZE / 2;
   VOXEL_BLOCK_SIZE = VOXEL_SIZE * VOXEL_PER_SIDE;
@@ -1098,8 +1104,8 @@ void initializeGlobalVarsCuda(float * voxel_size_d, float * truncation_distance_
 /*
 * Initialize device global variables
 */
-void initializeGlobalVars(Params params){
-  initializeGlobalVarsCuda<<<1,1>>>(params.voxel_size_param_d, params.truncation_distance_param_d, params.max_weight_param_d, 
+void initGlobalVars(Params params){
+  initGlobalVarsCuda<<<1,1>>>(params.voxel_size_param_d, params.truncation_distance_param_d, params.max_weight_param_d, 
     params.publish_distance_squared_param_d, params.garbage_collect_distance_squared_param_d);
   gpuErrchk( cudaPeekAtLastError() );
   cudaDeviceSynchronize();

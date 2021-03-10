@@ -58,11 +58,11 @@ public:
     __host__
     void garbageCollectDistantBlocks(Vector3f * origin_transformed_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
 private:
-    TSDFContainer * tsdfContainer; 
+    TSDFContainer * tsdf_container; 
     Vector3f * occupied_voxels_d;
-    Voxel * sdfWeightVoxelVals_d;
+    Voxel * sdf_weight_voxel_vals_d;
 };
 
-void initializeGlobalVars(Params params);
+void initGlobalVars(Params params);
 
 #endif
