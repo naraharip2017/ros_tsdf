@@ -23,10 +23,16 @@ TSDFContainer::~TSDFContainer(){
     delete block_heap_h;
 }
 
+/**
+* @return return the GPU side hash table
+*/
 HashTable * TSDFContainer::getCudaHashTable(){
     return hash_table_d;
 }
 
+/**
+* @return return the GPU side block heap
+*/
 BlockHeap * TSDFContainer::getCudaBlockHeap(){
     return block_heap_d;
 }

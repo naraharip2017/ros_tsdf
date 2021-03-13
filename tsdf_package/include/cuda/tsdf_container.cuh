@@ -11,15 +11,15 @@ typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
 //todo: make params - need to figure out how to allocate array of objects with dynamic pointers
 __constant__
-const int VOXEL_PER_SIDE = 8;
+const int VOXELS_PER_SIDE = 8; //the number of voxels per side in a voxel block
 __constant__
-const int HASH_ENTRIES_PER_BUCKET = 2;
+const int HASH_ENTRIES_PER_BUCKET = 2; //the amount of slots available in a hash table bucket
 __constant__
-const int NUM_BUCKETS = 1000000;
+const int NUM_BUCKETS = 1000000; //number of buckets in the hash table
 __constant__
 const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS;
 __constant__
-const int NUM_HEAP_BLOCKS = 10000;
+const int NUM_HEAP_BLOCKS = 10000; //number of blocks that can be stored in the block heap
 __constant__
 const int PRIME_ONE = 73856093;
 __constant__
@@ -36,27 +36,30 @@ struct Voxel{
 };
 
 struct VoxelBlock{
-    Voxel voxels[VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE];
-    int mutex[VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE]; //change to bool
+    // used to store data for the voxels inside a block
+    Voxel voxels[VOXELS_PER_SIDE * VOXELS_PER_SIDE * VOXELS_PER_SIDE];
+
+    //locks for each voxel so that during surface update two lidar points that will update the same voxel do not cause a data race
+    int mutex[VOXELS_PER_SIDE * VOXELS_PER_SIDE * VOXELS_PER_SIDE]; //change to bool
     __device__ __host__
     VoxelBlock(){
-        for(int i=0;i<VOXEL_PER_SIDE * VOXEL_PER_SIDE * VOXEL_PER_SIDE; ++i){
+        for(int i=0;i<VOXELS_PER_SIDE * VOXELS_PER_SIDE * VOXELS_PER_SIDE; ++i){
             mutex[i] = 0;
         }
     }
 };
 
 struct HashEntry{
-    Vector3f position; 
-    int offset;
-    int pointer;
+    Vector3f position; //position of the voxel block in the world
+    int offset; //used for linked list for a bucket if it overflows
+    int block_heap_pos; //position of voxel block in block heap 
     __device__ __host__
-    HashEntry():position(0,0,0),offset(0),pointer(0){
+    HashEntry():position(0,0,0),offset(0),block_heap_pos(0){
     }
     __device__ __host__ 
-    HashEntry(Vector3f position, int pointer):offset(0){
+    HashEntry(Vector3f position, int block_heap_pos):offset(0){
         this->position = position;
-        this->pointer = pointer;
+        this->block_heap_pos = block_heap_pos;
     }
     __device__ __host__
     bool isFree(){ //when deleting entries make sure the positions do not get set to -0 otherwise change this to an epsilon or fabs
@@ -73,8 +76,9 @@ struct HashEntry{
 };
 
 struct HashTable{
-    HashEntry hash_entries[HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS];
-    int mutex[NUM_BUCKETS]; //make bool
+    HashEntry hash_entries[HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS]; //list of hash entries
+    //locks for each hash table bucket for insert/delete of hash entries
+    int mutex[NUM_BUCKETS]; //make bool 
     __device__ __host__
     HashTable(){
         for(int i=0; i<NUM_BUCKETS;++i){
@@ -84,14 +88,14 @@ struct HashTable{
 };
 
 struct BlockHeap{
-    VoxelBlock blocks[NUM_HEAP_BLOCKS]; 
-    int free_blocks[NUM_HEAP_BLOCKS];
-    int current_index;
+    VoxelBlock blocks[NUM_HEAP_BLOCKS]; //block of memory for voxel blocks to be stored
+    int free_blocks[NUM_HEAP_BLOCKS]; //list of indices for keeping track of the next free position in the blocks array to insert to 
+    int block_count; //the current number of allocated blocks and where to search next in the free_blocks array for inserting a new block
     BlockHeap() {   
         for(int i=0; i<NUM_HEAP_BLOCKS; ++i){
             free_blocks[i] = i;
         }
-        current_index = 0;
+        block_count = 0;
     }
 };
 

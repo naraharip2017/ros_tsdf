@@ -15,15 +15,14 @@ typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
 class Transformer{
 public:
-    Transformer(std::string source_frame, rclcpp::Clock::SharedPtr clock_);
-    void getOriginInPointCloudFrame(const sensor_msgs::msg::PointCloud2 & in, Vector3f & origin_transformed);
-    void convertPointCloud2ToPointCloudXYZ(sensor_msgs::msg::PointCloud2::SharedPtr msg, pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud);
+    Transformer(std::string lidar_source_frame, rclcpp::Clock::SharedPtr clock_);
+    void getLidarPositionInPointCloudFrame(const sensor_msgs::msg::PointCloud2 & point_cloud, Vector3f & lidar_position_transformed);
+    void convertPointCloud2ToPointCloudXYZ(sensor_msgs::msg::PointCloud2::SharedPtr point_cloud_2, pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud_xyz);
 private:
     tf2_ros::Buffer* tf_buffer;
     tf2_ros::TransformListener* tf_listener;
-    geometry_msgs::msg::PointStamped origin_in;
     //frame of lidar
-    std::string source_frame;
+    std::string lidar_source_frame; //used to get the transform from lidar frame to world frame
 };
 
 #endif

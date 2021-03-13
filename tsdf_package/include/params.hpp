@@ -7,6 +7,9 @@ struct Params{
     float * max_weight_param_d;
     float * publish_distance_squared_param_d;
     float * garbage_collect_distance_squared_param_d;
+    /**
+     * Copy user defined parameters into member variables on GPU 
+     */
     Params(float voxel_size_input, float truncation_distance_input, float max_weight_input, float publish_distance_squared_input, float garbage_collect_distance_squared_input){
         float * voxel_size_param_h = new float(voxel_size_input);
         cudaMalloc(&voxel_size_param_d, sizeof(*voxel_size_param_h));

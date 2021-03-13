@@ -12,11 +12,15 @@
 #include "cuda/tsdf_container.cuh"
 #include "params.hpp"
 
-__constant__
-const int OCCUPIED_VOXELS_SIZE = 400000; //if holes appearing in visualization, increase this value
+//todo: hardcoded
 
+//expected max number of voxels to be published for one lidar scan
 __constant__
-const int MAX_LINKED_LIST_BLOCKS = 1000; //todo: hardcoded
+const int PUBLISH_VOXELS_MAX_SIZE = 400000;
+
+//Used for garbage collection to store at max this many blocks that are in linked lists that need to be removed sequentially.
+__constant__
+const int GARBAGE_LINKED_LIST_BLOCKS_MAX_SIZE = 1000; 
 
 __device__ float VOXEL_SIZE; //param
 __device__ float HALF_VOXEL_SIZE;
@@ -38,29 +42,29 @@ public:
     ~TSDFHandler();
 
     __host__
-    void processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud, Vector3f * origin_transformed_h, Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h);
+    void processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud, Vector3f * lidar_position_h, Vector3f * publish_voxels_pos_h, int * publish_voxels_size_h, Voxel * publish_voxels_data_h);
     
     __host__
-    void allocateVoxelBlocksAndUpdateVoxels(pcl::PointXYZ * points_d, Vector3f * origin_transformed_d, int * pointcloud_size_d, int pointcloud_size, HashTable * hash_table_d, BlockHeap * block_heap_d);
+    void allocateVoxelBlocksAndUpdateVoxels(pcl::PointXYZ * lidar_points_d, Vector3f * lidar_position_d, int * lidar_points_size_d, int point_cloud_size_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
     __host__
-    void getVoxelBlocks(int num_cuda_blocks, pcl::PointXYZ * points_d, Vector3f * pointcloud_voxel_blocks_d, int * pointcloud_voxel_blocks_d_index, Vector3f * origin_transformed_d, int * pointcloud_size_d);
+    void getVoxelBlocks(int num_cuda_blocks, pcl::PointXYZ * lidar_points_d, Vector3f * point_cloud_voxel_blocks_d, int * point_cloud_voxel_blocks_size_d, Vector3f * lidar_position_d, int * lidar_points_size_d);
 
     __host__
-    void integrateVoxelBlockPointsIntoHashTable(Vector3f * points_d, int * pointcloud_voxel_blocks_d_index, HashTable * hash_table_d, BlockHeap * block_heap_d);
+    void allocateVoxelBlocks(Vector3f * lidar_points_d, int * point_cloud_voxel_blocks_size_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
     __host__
-    void updateVoxels(int & num_cuda_blocks, pcl::PointXYZ * points_d, Vector3f * origin_transformed_d, int * pointcloud_size_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
+    void getVoxelsAndUpdate(int & num_cuda_blocks, pcl::PointXYZ * lidar_points_d, Vector3f * lidar_position_d, int * lidar_points_size_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
     __host__
-    void publishOccupiedVoxels(Vector3f * origin_transformed_d, Vector3f * occupied_voxels_h, int * occupied_voxels_index, Voxel * sdfWeightVoxelVals_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
+    void publishVoxels(Vector3f * lidar_position_d, Vector3f * publish_voxels_pos_h, int * publish_voxels_size_h, Voxel * publish_voxels_data_h, HashTable * hash_table_d, BlockHeap * block_heap_d);
 
     __host__
-    void garbageCollectDistantBlocks(Vector3f * origin_transformed_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
+    void garbageCollectDistantBlocks(Vector3f * lidar_position_d, HashTable * hash_table_d, BlockHeap * block_heap_d);
 private:
-    TSDFContainer * tsdf_container; 
-    Vector3f * occupied_voxels_d;
-    Voxel * sdf_weight_voxel_vals_d;
+    TSDFContainer * tsdf_container; //object to hold the hash table and block heap for the tsdf
+    Vector3f * publish_voxels_pos_d; //the array to copy back to cpu with voxels positions to publish
+    Voxel * publish_voxels_data_d; //the array to copy back to cpu with voxels sdf and weight values to publish
 };
 
 void initGlobalVars(Params params);
