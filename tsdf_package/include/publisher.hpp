@@ -2,8 +2,6 @@
 #define _PUBLISHER_HPP
 #include <Eigen/Dense>
 #include "rclcpp/rclcpp.hpp"
-#include <visualization_msgs/msg/marker.hpp> 
-#include <visualization_msgs/msg/marker_array.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <pcl/point_types.h>
 #include <pcl/PCLPointCloud2.h>

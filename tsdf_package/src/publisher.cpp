@@ -5,6 +5,9 @@
  * @param publish_voxels_size the amount of voxels to publish. The data is stored between 0 - publish_voxels_size in publish_voxels_pos and publish_voxels_data
  */
 void Publisher::publish(int & publish_voxels_size){ 
+
+  printf("Number of Voxels Published: %d\n", publish_voxels_size);
+
   auto message = tsdf_package_msgs::msg::Tsdf(); 
   for(int i=0;i<publish_voxels_size;i++){
     Vector3f publish_voxel_pos = publish_voxels_pos[i];

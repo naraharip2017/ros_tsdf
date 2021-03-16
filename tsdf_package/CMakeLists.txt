@@ -61,7 +61,6 @@ add_library(tsdf_node
 ament_export_interfaces(export_tsdf_node HAS_LIBRARY_TARGET)
 
 ament_export_dependencies(
-  "visualization_msgs"
   "CUDA"
   "rclcpp"
   "sensor_msgs"
@@ -75,7 +74,6 @@ ament_export_dependencies(
 )
 
 ament_target_dependencies(tsdf_node 
-  "visualization_msgs"
   "CUDA"
   "rclcpp"
   "sensor_msgs"

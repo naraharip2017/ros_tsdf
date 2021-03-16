@@ -46,8 +46,10 @@ void Transformer::getLidarPositionInPointCloudFrame(const sensor_msgs::msg::Poin
       
   } catch (tf2::LookupException & e) {
     RCLCPP_ERROR(rclcpp::get_logger("pcl_ros"), "%s", e.what());
+    throw;
   } catch (tf2::ExtrapolationException & e) {
     RCLCPP_ERROR(rclcpp::get_logger("pcl_ros"), "%s", e.what());
+    throw;
   }
 }
 

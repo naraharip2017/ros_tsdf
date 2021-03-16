@@ -9,17 +9,21 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
-//todo: make params - need to figure out how to allocate array of objects with dynamic pointers
 __constant__
-const int VOXELS_PER_SIDE = 8; //the number of voxels per side in a voxel block
+const int VOXELS_PER_SIDE = 8; //the number of voxels per side in a voxel block. See note on NUM_HEAP_BLOCKS constant if changing this.
+__constant__
+const int VOXELS_PER_BLOCK = VOXELS_PER_SIDE * VOXELS_PER_SIDE * VOXELS_PER_SIDE; //num voxels in a voxel block
 __constant__
 const int HASH_ENTRIES_PER_BUCKET = 2; //the amount of slots available in a hash table bucket
 __constant__
 const int NUM_BUCKETS = 1000000; //number of buckets in the hash table
 __constant__
-const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS;
+const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS; //number of hash entries in hash table
 __constant__
-const int NUM_HEAP_BLOCKS = 10000; //number of blocks that can be stored in the block heap
+//if changing voxel size, truncation distance, garbage collect distance parameters or voxels per side constant may have to adjust this value
+//if the number of blocks overflows this value an error msg is printed
+const int NUM_HEAP_BLOCKS = 50000; //number of blocks that can be stored in the block heap
+//primes for hashing function
 __constant__
 const int PRIME_ONE = 73856093;
 __constant__
