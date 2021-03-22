@@ -41,13 +41,13 @@ struct Voxel{
 
 struct VoxelBlock{
     // used to store data for the voxels inside a block
-    Voxel voxels[VOXELS_PER_SIDE * VOXELS_PER_SIDE * VOXELS_PER_SIDE];
+    Voxel voxels[VOXELS_PER_BLOCK];
 
     //locks for each voxel so that during surface update two lidar points that will update the same voxel do not cause a data race
-    int mutex[VOXELS_PER_SIDE * VOXELS_PER_SIDE * VOXELS_PER_SIDE]; //change to bool
+    int mutex[VOXELS_PER_BLOCK]; //change to bool
     __device__ __host__
     VoxelBlock(){
-        for(int i=0;i<VOXELS_PER_SIDE * VOXELS_PER_SIDE * VOXELS_PER_SIDE; ++i){
+        for(int i=0;i<VOXELS_PER_BLOCK; ++i){
             mutex[i] = 0;
         }
     }

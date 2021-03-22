@@ -591,8 +591,8 @@ void updateVoxelsCuda(Vector3f * voxels, HashTable * hash_table, BlockHeap * blo
   Vector3f voxel_block_coordinates = getVolumeCenterFromPoint(voxel_coordinates, VOXEL_BLOCK_SIZE);
 
   //get the voxel blocks bucket in hash table
-  size_t bucketIndex = retrieveHashIndexFromPoint(voxel_block_coordinates);
-  size_t current_global_index = bucketIndex * HASH_ENTRIES_PER_BUCKET;
+  size_t bucket_index = retrieveHashIndexFromPoint(voxel_block_coordinates);
+  size_t current_global_index = bucket_index * HASH_ENTRIES_PER_BUCKET;
   HashEntry * hash_entries = hash_table->hash_entries;
 
   //find block heap position for block
