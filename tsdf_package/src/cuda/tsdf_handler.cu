@@ -50,6 +50,7 @@ void printNumAllocatedVoxelBlocksCuda(BlockHeap * block_heap){
 __device__
 size_t retrieveHashIndexFromPoint(Vector3f point){
   return abs((((int)point(0)*PRIME_ONE) ^ ((int)point(1)*PRIME_TWO) ^ ((int)point(2)*PRIME_THREE)) % NUM_BUCKETS);
+  //return (X_MASK(point(0)/VOXEL_BLOCK_SIZE) + Y_MASK(point(1)/VOXEL_BLOCK_SIZE) + Z_MASK(point(2)/VOXEL_BLOCK_SIZE)) % NUM_BUCKETS;
 }
 
 /**
@@ -319,8 +320,10 @@ inline bool attemptHashedBucketVoxelBlockCreation(size_t & hashed_bucket_index, 
   //get position of beginning of hashed bucket
   size_t insert_current_global_index = hashed_bucket_index * HASH_ENTRIES_PER_BUCKET;
   //loop through bucket and insert if there is a free space
-  for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
-    if(hash_entries[insert_current_global_index+i].isFree()){ 
+  for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i) {
+    if(checkFloatingPointVectorsEqual(hash_entries[insert_current_global_index+i].position, voxel_block_coordinates, HALF_VOXEL_BLOCK_SIZE)) {
+      return true;    // Block has already been allocated
+    } else if(hash_entries[insert_current_global_index+i].isFree()){
       //get next free position in block heap
       int block_heap_free_index = atomicAdd(&(block_heap->block_count), 1);
       VoxelBlock * alloc_block = new VoxelBlock();
@@ -757,11 +760,11 @@ int * publish_voxels_size, Voxel * publish_voxels_data){
   }
   Vector3f block_pos = hash_entry.position;
   //check the block position is within publishing distance of the lidar position
-  if(withinDistanceSquared(block_pos, *lidar_position, PUBLISH_DISTANCE_SQUARED)){
+  if(withinDistanceSquared(block_pos, *lidar_position, PUBLISH_DISTANCE_SQUARED)){    // TODO: When streaming is implemented, this check won't be needed, because hash entries outside publish distance will automatically be garbage collected
     int block_heap_pos = hash_entry.block_heap_pos;
     Vector3f * bottom_left_block_pos = new Vector3f(block_pos(0) - HALF_VOXEL_BLOCK_SIZE, 
-    block_pos(1)- HALF_VOXEL_BLOCK_SIZE,
-    block_pos(2)- HALF_VOXEL_BLOCK_SIZE);
+                                                    block_pos(1)- HALF_VOXEL_BLOCK_SIZE,
+                                                    block_pos(2)- HALF_VOXEL_BLOCK_SIZE);
   
     VoxelBlock * block = &(block_heap->blocks[block_heap_pos]); //get reference to block
     int num_blocks = VOXELS_PER_BLOCK/threads_per_cuda_block + 1;

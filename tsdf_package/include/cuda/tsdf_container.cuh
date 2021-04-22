@@ -9,20 +9,24 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
+#define X_MASK(x) x && 0x3F
+#define Y_MASK(x) (x && 0x3F) << 6
+#define Z_MASK(x) (x && 0x1F) << 12
+
 __constant__
 const int VOXELS_PER_SIDE = 8; //the number of voxels per side in a voxel block. See note on NUM_HEAP_BLOCKS constant if changing this.
 __constant__
 const int VOXELS_PER_BLOCK = VOXELS_PER_SIDE * VOXELS_PER_SIDE * VOXELS_PER_SIDE; //num voxels in a voxel block
 __constant__
-const int HASH_ENTRIES_PER_BUCKET = 2; //the amount of slots available in a hash table bucket
+const int HASH_ENTRIES_PER_BUCKET = 4; //the amount of slots available in a hash table bucket
 __constant__
-const int NUM_BUCKETS = 1000000; //number of buckets in the hash table
+const int NUM_BUCKETS = 131072; //number of buckets in the hash table
 __constant__
 const int HASH_TABLE_SIZE = HASH_ENTRIES_PER_BUCKET * NUM_BUCKETS; //number of hash entries in hash table
 __constant__
 //if changing voxel size, truncation distance, garbage collect distance parameters or voxels per side constant may have to adjust this value
 //if the number of blocks overflows this value an error msg is printed
-const int NUM_HEAP_BLOCKS = 50000; //number of blocks that can be stored in the block heap
+const int NUM_HEAP_BLOCKS = 524288; //number of blocks that can be stored in the block heap
 //primes for hashing function
 __constant__
 const int PRIME_ONE = 73856093;
