@@ -167,6 +167,8 @@ Vector3f * traversed_vols, int * traversed_vols_size){
     insert_index = atomicAdd(&(*traversed_vols_size), 1);
     traversed_vols[insert_index] = current_vol_center;
 
+    //printf("(%03f, %03f, %03f) block between (%03f, %03f, %03f) and (%03f, %03f, %03f)\n", current_vol_center(0), current_vol_center(1), current_vol_center(2), truncation_start_vol(0), truncation_start_vol(1), truncation_start_vol(2), truncation_end_vol(0), truncation_end_vol(1), truncation_end_vol(2));
+
     if(tMax_x < tMax_y){
       if(tMax_x < tMax_z)
       {
@@ -283,6 +285,8 @@ int getBlockPositionForBlockCoordinates(Vector3f & voxel_block_coordinates, size
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i){
     hash_entry = hash_entries[current_global_index+i];
     if(checkFloatingPointVectorsEqual(hash_entry.position, voxel_block_coordinates, BLOCK_EPSILON)){
+      //printf("Looked up (%03f, %03f, %03f) indexed at 0x%x, heap index: 0x%x\n", voxel_block_coordinates.x(), voxel_block_coordinates.y(), voxel_block_coordinates.z(), current_global_index+i, hash_entry.block_heap_pos);
+
       return hash_entry.block_heap_pos;
     }
   }
@@ -299,6 +303,8 @@ int getBlockPositionForBlockCoordinates(Vector3f & voxel_block_coordinates, size
     }
     hash_entry = hash_entries[current_global_index];
     if(checkFloatingPointVectorsEqual(hash_entry.position, voxel_block_coordinates, BLOCK_EPSILON)){
+      //printf("Looked up (%03f, %03f, %03f) indexed at 0x%x, heap index: 0x%x\n", voxel_block_coordinates.x(), voxel_block_coordinates.y(), voxel_block_coordinates.z(), current_global_index, hash_entry.block_heap_pos);
+      
       return hash_entry.block_heap_pos;
     }
   }
@@ -321,15 +327,16 @@ inline bool attemptHashedBucketVoxelBlockCreation(size_t & hashed_bucket_index, 
   size_t insert_current_global_index = hashed_bucket_index * HASH_ENTRIES_PER_BUCKET;
   //loop through bucket and insert if there is a free space
   for(size_t i=0; i<HASH_ENTRIES_PER_BUCKET; ++i) {
-    if(checkFloatingPointVectorsEqual(hash_entries[insert_current_global_index+i].position, voxel_block_coordinates, HALF_VOXEL_BLOCK_SIZE)) {
-      return true;    // Block has already been allocated
-    } else if(hash_entries[insert_current_global_index+i].isFree()){
+    if(hash_entries[insert_current_global_index+i].isFree()){
       //get next free position in block heap
       int block_heap_free_index = atomicAdd(&(block_heap->block_count), 1);
       VoxelBlock * alloc_block = new VoxelBlock();
       HashEntry * alloc_block_hash_entry = new HashEntry(voxel_block_coordinates, block_heap_free_index);
       block_heap->blocks[block_heap_free_index] = *alloc_block;
       hash_entries[insert_current_global_index+i] = *alloc_block_hash_entry;
+
+      printf("(%03f, %03f, %03f) indexed at 0x%x, hashed to 0x%zx, heap index: 0x%x\n", voxel_block_coordinates.x(), voxel_block_coordinates.y(), voxel_block_coordinates.z(), insert_current_global_index+i, retrieveHashIndexFromPoint(voxel_block_coordinates), block_heap_free_index);
+      
       cudaFree(alloc_block);
       cudaFree(alloc_block_hash_entry);
       return true;
@@ -368,6 +375,10 @@ size_t & end_linked_list_pointer, Vector3f & voxel_block_coordinates, HashEntry 
             block_heap->blocks[block_heap_free_index] = *alloc_block;
             size_t insert_pos = insert_current_global_index + i;
             hash_entries[insert_pos] = *alloc_block_hash_entry;
+
+
+            printf("(%03f, %03f, %03f)* indexed at 0x%x, hashes to 0x%zx, heap index: 0x%x\n", hash_entries[insert_pos].position.x(), hash_entries[insert_pos].position.y(), hash_entries[insert_pos].position.z(), insert_pos, retrieveHashIndexFromPoint(voxel_block_coordinates), block_heap_free_index);
+
             cudaFree(alloc_block);
             cudaFree(alloc_block_hash_entry);
             //set offset value for last hash_entry in the linked list
@@ -441,6 +452,8 @@ void allocateVoxelBlocksCuda(Vector3f * voxel_blocks, HashTable * hash_table, Bl
       return;
     }
 
+    //assert(0);
+
     //start searching for a free position in the next bucket
     size_t insert_bucket_index = hashed_bucket_index + 1;
     //set insert_bucket_index to first bucket if overflow the hash table size
@@ -456,6 +469,7 @@ void allocateVoxelBlocksCuda(Vector3f * voxel_blocks, HashTable * hash_table, Bl
 
     //if end of linked list is in different bucket than hashed bucket try to get the lock for the end of the linked list
     if(end_linked_list_bucket!=hashed_bucket_index){
+      // NOTE: How will this ever evaluate to be true?
       //release lock of the hashed bucket
       atomicExch(&hash_table->mutex[hashed_bucket_index], 0);
       //attempt to get lock of bucket with end of linked list
@@ -489,6 +503,7 @@ void allocateVoxelBlocksCuda(Vector3f * voxel_blocks, HashTable * hash_table, Bl
 */
 __device__
 size_t getLocalVoxelIndex(Vector3f diff){
+  assert(diff(0) < VOXEL_BLOCK_SIZE && diff(1) < VOXEL_BLOCK_SIZE && diff(2) < VOXEL_BLOCK_SIZE);
   diff /= VOXEL_SIZE;
   return floor(diff(0)) + (floor(diff(1)) * VOXELS_PER_SIDE) + (floor(diff(2)) * VOXELS_PER_SIDE * VOXELS_PER_SIDE);
 }
@@ -689,6 +704,37 @@ void getVoxelsAndUpdateCuda(pcl::PointXYZ * lidar_points, Vector3f * lidar_posit
   cudaFree(voxels_traversed);
   cudaFree(voxels_traversed_size);
   return;
+}
+
+/**
+* Get voxels traversed on ray between sensor position and a lidar point within truncation distance of lidar point
+* @param lidar_position position of lidar
+* @param lidar_points_size num of lidar points
+*/
+__global__
+void removeRedundantVoxels(Vector3f * lidar_position, int * lidar_points_size) {
+  // i is the index of values you're reading, j is the index of where you're writing,
+  // they're just incidentally indices for the same array
+  
+  int j = 0;
+  for(int i = 0; i < *lidar_points_size; i++) {
+    bool redundant = false;
+    for(int k = 0; k < j; k++) {    // Compare to all previous entries to see if it's a duplicate
+      if(checkFloatingPointVectorsEqual(lidar_position[i], lidar_position[k], HALF_VOXEL_BLOCK_SIZE)) {
+        redundant = true;
+        break;
+      }
+    }
+    if (!redundant) {             // If it's a duplicate, skip it. If not, shift it down into the new list
+      lidar_position[j++] = lidar_position[i];
+      printf("Valid voxel block (%03f, %03f, %03f)\n", lidar_position[i](0), lidar_position[i](1), lidar_position[i](2));
+    } else {
+      printf("Redudant voxel block (%03f, %03f, %03f)\n", lidar_position[i](0), lidar_position[i](1), lidar_position[i](2));
+    }
+    cudaDeviceSynchronize();
+  }
+
+  *lidar_points_size = j + 1;
 }
 
 /**
@@ -1031,6 +1077,12 @@ Vector3f * lidar_position_d, int * lidar_points_size_d){
   gpuErrchk(cudaPeekAtLastError());
   cudaDeviceSynchronize();
 
+  removeRedundantVoxels<<<1,1>>>(point_cloud_voxel_blocks_d, point_cloud_voxel_blocks_size_d);  // TODO: Paralellize this somehow
+
+  gpuErrchk( cudaPeekAtLastError() );
+  cudaDeviceSynchronize();
+
+
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   float milliseconds = 0;
@@ -1115,6 +1167,7 @@ HashTable * hash_table_d, BlockHeap * block_heap_d){
   cudaEventRecord(start);
 
   getVoxelsAndUpdateCuda<<<num_cuda_blocks,threads_per_cuda_block>>>(lidar_points_d, lidar_position_d, hash_table_d, block_heap_d, lidar_points_size_d);
+  // TODO: Go through and eliminate redundant voxel blocks
   gpuErrchk( cudaPeekAtLastError() );
   cudaDeviceSynchronize();
 
