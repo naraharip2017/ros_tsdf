@@ -13,6 +13,8 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
+namespace tsdf {
+
 class Transformer{
 public:
     Transformer(std::string lidar_source_frame, rclcpp::Clock::SharedPtr clock_);
@@ -24,5 +26,7 @@ private:
     //frame of lidar
     std::string lidar_source_frame; //used to get the transform from lidar frame to world frame
 };
+
+}
 
 #endif

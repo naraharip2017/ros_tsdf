@@ -1,4 +1,7 @@
+#define TSDF_LIBRARY
 #include "cuda/tsdf_handler.cuh"
+
+namespace tsdf {
 
 //used to determine num blocks when executing cuda kernel
 const int threads_per_cuda_block = 128;
@@ -1310,5 +1313,7 @@ void initGlobalVars(float voxel_size_h, float truncation_distance_h, float max_w
 
   //set max_voxel_blocks_traversed_per_lidar_point in relation to truncation distance and voxel_block_size
   max_voxel_blocks_traversed_per_lidar_point = ceil(truncation_distance_h * 2 / voxel_block_size) * 4;
+
+}
 
 }

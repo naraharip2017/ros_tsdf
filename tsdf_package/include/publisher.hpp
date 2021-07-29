@@ -13,6 +13,8 @@
 
 typedef Eigen::Matrix<float, 3, 1> Vector3f;
 
+namespace tsdf {
+
 class Publisher{
 public:
     Publisher(
@@ -27,5 +29,7 @@ private:
     Vector3f * publish_voxels_pos; //reference to host side array that will be used to copy voxel positions from GPU for publishing
     Voxel *  publish_voxels_data; //reference to host sdie array that will be used to copy sdf and weight values for voxels from GPU for publishing
 };
+
+}
 
 #endif

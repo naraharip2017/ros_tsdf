@@ -13,6 +13,8 @@ typedef Eigen::Matrix<float, 3, 1> Vector3f;
 #define Y_MASK(x) (x && 0x3F) << 6
 #define Z_MASK(x) (x && 0x1F) << 12
 
+namespace tsdf {
+
 __constant__
 const int VOXELS_PER_SIDE = 8; //the number of voxels per side in a voxel block. See note on NUM_HEAP_BLOCKS constant if changing this.
 __constant__
@@ -129,5 +131,7 @@ private:
     BlockHeap * block_heap_h;
     BlockHeap * block_heap_d;
 };
+
+}
 
 #endif

@@ -1,5 +1,7 @@
 #include "transformer.hpp"
 
+namespace tsdf {
+
 /**
  * Transformer constructor
  * @param lidar_source_frame frame of lidar - convert from this frame to that of the point cloud
@@ -62,4 +64,6 @@ void Transformer::convertPointCloud2ToPointCloudXYZ(sensor_msgs::msg::PointCloud
     pcl::PCLPointCloud2 pcl_pc2;
     pcl_conversions::toPCL(*point_cloud_2,pcl_pc2);
     pcl::fromPCLPointCloud2(pcl_pc2,*point_cloud_xyz);
+}
+
 }

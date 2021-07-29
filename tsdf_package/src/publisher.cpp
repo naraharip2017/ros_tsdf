@@ -1,5 +1,7 @@
 #include "publisher.hpp"
 
+namespace tsdf {
+
 /**
  * publishes voxels on tsdf topic
  * @param publish_voxels_size the amount of voxels to publish. The data is stored between 0 - publish_voxels_size in publish_voxels_pos and publish_voxels_data
@@ -44,4 +46,6 @@ float & voxel_size, Vector3f * publish_voxels_pos, Voxel * publish_voxels_data){
   this->voxel_size = voxel_size;
   this->publish_voxels_pos = publish_voxels_pos;
   this->publish_voxels_data = publish_voxels_data;
+}
+
 }

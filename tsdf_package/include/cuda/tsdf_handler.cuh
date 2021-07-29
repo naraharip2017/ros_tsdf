@@ -19,6 +19,8 @@ const int PUBLISH_VOXELS_MAX_SIZE = 400000;
 __constant__
 const int GARBAGE_LINKED_LIST_BLOCKS_MAX_SIZE = 1000; 
 
+// Only declare these constants when being compiled in the tsdf_package library, to avoid double-declaration when linking
+#ifdef TSDF_LIBRARY
 __constant__ float VOXEL_SIZE; //param
 __constant__ float HALF_VOXEL_SIZE;
 __constant__ float VOXEL_BLOCK_SIZE; // = VOXELS_PER_SIDE * VOXEL_SIZE
@@ -32,6 +34,10 @@ __constant__ float GARBAGE_COLLECT_DISTANCE_SQUARED; //distance squared from dro
 
 //max amount of voxels that are traversed per lidar point. Set in terms of truncation distance and voxel size
 __constant__ int MAX_VOXELS_TRAVERSED_PER_LIDAR_POINT;
+#endif
+
+namespace tsdf {
+
 class TSDFHandler{
 public:
     __host__
@@ -73,5 +79,8 @@ private:
 
 void initGlobalVars(float voxel_size_input, float truncation_distance_input, float max_weight_input, float publish_distance_squared_input, 
 float garbage_collect_distance_squared_input);
+
+}
+
 
 #endif

@@ -6,6 +6,8 @@
 * Definitions for tsdf_container class declared in tsdf_container.cuh
 */
 
+namespace tsdf {
+
 TSDFContainer::TSDFContainer(){
     //allocate hash table and block heap on host and device
     hash_table_h = new HashTable();
@@ -35,4 +37,6 @@ HashTable * TSDFContainer::getCudaHashTable(){
 */
 BlockHeap * TSDFContainer::getCudaBlockHeap(){
     return block_heap_d;
+}
+
 }
