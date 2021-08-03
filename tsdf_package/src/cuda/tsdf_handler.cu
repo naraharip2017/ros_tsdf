@@ -958,7 +958,7 @@ TSDFHandler::TSDFHandler(){
 }
 
 TSDFHandler::~TSDFHandler(){
-  free(tsdf_container);
+  delete tsdf_container;
   cudaFree(publish_voxels_pos_d);
   cudaFree(publish_voxels_data_d);
 }
