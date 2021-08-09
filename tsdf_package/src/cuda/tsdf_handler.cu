@@ -4,7 +4,7 @@
 namespace tsdf {
 
 //used to determine num blocks when executing cuda kernel
-const int threads_per_cuda_block = 128;
+const int threads_per_cuda_block = 128;   // TODO: Those are rookie numbers. We gotta bump those up.
 
 //used to set the size of the array used to store voxel blocks traversed by a lidar point cloud
 int max_voxel_blocks_traversed_per_lidar_point;
@@ -622,6 +622,7 @@ void updateVoxelsCuda(Vector3f * voxels, HashTable * hash_table, BlockHeap * blo
   voxel_block_bottom_left_coordinates(0) = voxel_block_coordinates(0)-HALF_VOXEL_BLOCK_SIZE;
   voxel_block_bottom_left_coordinates(1) = voxel_block_coordinates(1)-HALF_VOXEL_BLOCK_SIZE;
   voxel_block_bottom_left_coordinates(2) = voxel_block_coordinates(2)-HALF_VOXEL_BLOCK_SIZE;
+
   //get local position of voxel in its block
   size_t local_voxel_index = getLocalVoxelIndex(voxel_coordinates - voxel_block_bottom_left_coordinates);
 
@@ -698,11 +699,8 @@ void getVoxelsAndUpdateCuda(pcl::PointXYZ * lidar_points, Vector3f * lidar_posit
   Vector3f * lidar_point_p = new Vector3f(lidar_point.x, lidar_point.y, lidar_point.z);
 
   //update the voxels sdf and weight values processing traversed voxels in parallel
-  cudaStream_t s;
-  cudaStreamCreateWithFlags(&s, cudaStreamDefault);
   int num_cuda_blocks = *voxels_traversed_size/threads_per_cuda_block + 1;
-  updateVoxelsCuda<<<num_cuda_blocks, threads_per_cuda_block, 0, s>>>(voxels_traversed, hash_table, block_heap, lidar_point_p, lidar_position, voxels_traversed_size);
-  cudaStreamDestroy(s);
+  updateVoxelsCuda<<<num_cuda_blocks, threads_per_cuda_block>>>(voxels_traversed, hash_table, block_heap, lidar_point_p, lidar_position, voxels_traversed_size);
   cdpErrchk(cudaPeekAtLastError());
 
   cudaFree(lidar_point_p);
@@ -732,10 +730,11 @@ void removeRedundantVoxels(Vector3f * lidar_position, int * lidar_points_size) {
     }
     if (!redundant) {             // If it's a duplicate, skip it. If not, shift it down into the new list
       lidar_position[j++] = lidar_position[i];
-      printf("Valid voxel block (%03f, %03f, %03f)\n", lidar_position[i](0), lidar_position[i](1), lidar_position[i](2));
+      //printf("Valid voxel block (%03f, %03f, %03f)\n", lidar_position[i](0), lidar_position[i](1), lidar_position[i](2));
     } else {
-      printf("Redudant voxel block (%03f, %03f, %03f)\n", lidar_position[i](0), lidar_position[i](1), lidar_position[i](2));
+      //printf("Redudant voxel block (%03f, %03f, %03f)\n", lidar_position[i](0), lidar_position[i](1), lidar_position[i](2));
     }
+    cudaDeviceSynchronize();
   }
 
   *lidar_points_size = j + 1;
@@ -815,15 +814,11 @@ int * publish_voxels_size, Voxel * publish_voxels_data){
     Vector3f * bottom_left_block_pos = new Vector3f(block_pos(0) - HALF_VOXEL_BLOCK_SIZE, 
                                                     block_pos(1)- HALF_VOXEL_BLOCK_SIZE,
                                                     block_pos(2)- HALF_VOXEL_BLOCK_SIZE);
-  
-    cudaStream_t s;
-    cudaStreamCreateWithFlags(&s, cudaStreamDefault);
 
     VoxelBlock * block = &(block_heap->blocks[block_heap_pos]); //get reference to block
     int num_blocks = VOXELS_PER_BLOCK/threads_per_cuda_block + 1;
     //check voxels in parallel in blocks for whether they have data to publish
-    processPublishableVoxelBlockCuda<<<num_blocks,threads_per_cuda_block, 0, s>>>(publish_voxels_pos, publish_voxels_size, publish_voxels_data, bottom_left_block_pos, block);
-    cudaStreamDestroy(s);
+    processPublishableVoxelBlockCuda<<<num_blocks,threads_per_cuda_block>>>(publish_voxels_pos, publish_voxels_size, publish_voxels_data, bottom_left_block_pos, block);
     cdpErrchk(cudaPeekAtLastError());
 
     cudaFree(bottom_left_block_pos);
@@ -982,6 +977,8 @@ TSDFHandler::~TSDFHandler(){
 void TSDFHandler::processPointCloudAndUpdateVoxels(pcl::PointCloud<pcl::PointXYZ>::Ptr point_cloud, Vector3f * lidar_position_h, Vector3f * publish_voxels_pos_h, 
 int * publish_voxels_size_h, Voxel * publish_voxels_data_h)
 { 
+  std::cout << "processPointCloudAndUpdateVoxels: start" << std::endl;
+
   std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ>> lidar_points = point_cloud->points;
 
   pcl::PointXYZ * lidar_points_h = &lidar_points[0]; //get array reference from vector
@@ -997,15 +994,18 @@ int * publish_voxels_size_h, Voxel * publish_voxels_data_h)
   Vector3f * lidar_position_d;
   cudaMalloc(&lidar_position_d, sizeof(*lidar_position_h)); //copy lidar position to GPU
   gpuErrchk(cudaPeekAtLastError());
+  std::cout << "processPointCloudAndUpdateVoxels: malloc" << std::endl;
 
   cudaMemcpyAsync(lidar_points_d, lidar_points_h, sizeof(*lidar_points_h)*point_cloud_size_h, cudaMemcpyHostToDevice, stream);
   cudaMemcpyAsync(lidar_points_size_d, &point_cloud_size_h, sizeof(int), cudaMemcpyHostToDevice, stream);
   cudaMemcpyAsync(lidar_position_d, lidar_position_h,sizeof(*lidar_position_h),cudaMemcpyHostToDevice, stream);
   cudaStreamSynchronize(stream);
   gpuErrchk(cudaPeekAtLastError());
+  std::cout << "processPointCloudAndUpdateVoxels: Memcpys" << std::endl;
 
   HashTable * hash_table_d = tsdf_container->getCudaHashTable(); //get reference to gpu side hash table 
   BlockHeap * block_heap_d = tsdf_container->getCudaBlockHeap(); //get reference to gpu side block heap
+  std::cout << "processPointCloudAndUpdateVoxels: got hash table and block heap references" << std::endl;
 
   allocateVoxelBlocksAndUpdateVoxels(lidar_points_d, lidar_position_d, lidar_points_size_d, point_cloud_size_h, hash_table_d, block_heap_d);
 
@@ -1019,6 +1019,7 @@ int * publish_voxels_size_h, Voxel * publish_voxels_data_h)
   gpuErrchk(cudaPeekAtLastError());
   cudaFree(lidar_position_d);
   gpuErrchk(cudaPeekAtLastError());
+  std::cout << "processPointCloudAndUpdateVoxels: exit" << std::endl;
 
 }
 
@@ -1033,6 +1034,8 @@ int * publish_voxels_size_h, Voxel * publish_voxels_data_h)
 */
 void TSDFHandler::allocateVoxelBlocksAndUpdateVoxels(pcl::PointXYZ * lidar_points_d, Vector3f * lidar_position_d, int * lidar_points_size_d, 
 int point_cloud_size_h, HashTable * hash_table_d, BlockHeap * block_heap_d){
+  std::cout << "allocateVoxelBlocksAndUpdateVoxels: start" << std::endl;
+
   //the max number of voxel blocks that can be allocated during this point cloud frame
   int max_blocks = max_voxel_blocks_traversed_per_lidar_point * point_cloud_size_h;
 
@@ -1046,13 +1049,15 @@ int point_cloud_size_h, HashTable * hash_table_d, BlockHeap * block_heap_d){
   gpuErrchk(cudaPeekAtLastError());
   cudaMalloc(&point_cloud_voxel_blocks_size_d, sizeof(point_cloud_voxel_blocks_size_h));
   gpuErrchk(cudaPeekAtLastError());
+  std::cout << "allocateVoxelBlocksAndUpdateVoxels: mallocs" << std::endl;
 
   cudaMemcpyAsync(point_cloud_voxel_blocks_d, point_cloud_voxel_blocks_h, sizeof(*point_cloud_voxel_blocks_h)*max_blocks,cudaMemcpyHostToDevice, stream);
   cudaMemcpyAsync(point_cloud_voxel_blocks_size_d, &point_cloud_voxel_blocks_size_h, sizeof(point_cloud_voxel_blocks_size_h), cudaMemcpyHostToDevice, stream);
   cudaStreamSynchronize(stream);
   gpuErrchk(cudaPeekAtLastError());
+  std::cout << "allocateVoxelBlocksAndUpdateVoxels: memcpys" << std::endl;
 
-  int num_cuda_blocks = point_cloud_size_h / threads_per_cuda_block + 1;
+  int num_cuda_blocks = point_cloud_size_h / threads_per_cuda_block + 1;  // TODO: Correct this with a proper round-up operation 
 
   getVoxelBlocks(num_cuda_blocks, lidar_points_d, point_cloud_voxel_blocks_d, point_cloud_voxel_blocks_size_d, lidar_position_d, lidar_points_size_d);
 
@@ -1064,6 +1069,7 @@ int point_cloud_size_h, HashTable * hash_table_d, BlockHeap * block_heap_d){
   gpuErrchk(cudaPeekAtLastError());
   cudaFree(point_cloud_voxel_blocks_size_d);
   gpuErrchk(cudaPeekAtLastError());
+  std::cout << "allocateVoxelBlocksAndUpdateVoxels: exit" << std::endl;
 }
 
 /**
@@ -1077,6 +1083,7 @@ int point_cloud_size_h, HashTable * hash_table_d, BlockHeap * block_heap_d){
 */
 void TSDFHandler::getVoxelBlocks(int num_cuda_blocks, pcl::PointXYZ * lidar_points_d, Vector3f * point_cloud_voxel_blocks_d, int * point_cloud_voxel_blocks_size_d, 
 Vector3f * lidar_position_d, int * lidar_points_size_d){
+  std::cout << "getVoxelBlocks: start" << std::endl;
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
@@ -1084,13 +1091,15 @@ Vector3f * lidar_position_d, int * lidar_points_size_d){
 
   getVoxelBlocksCuda<<<num_cuda_blocks,threads_per_cuda_block, 0, stream>>>(lidar_points_d, point_cloud_voxel_blocks_d, point_cloud_voxel_blocks_size_d, 
     lidar_position_d, lidar_points_size_d);
-  gpuErrchk(cudaPeekAtLastError());
+
   cudaStreamSynchronize(stream);
+  gpuErrchk(cudaPeekAtLastError());
+  std::cout << "getVoxelBlocks: getVoxelBlocksCuda" << std::endl;
 
   removeRedundantVoxels<<<1,1, 0, stream>>>(point_cloud_voxel_blocks_d, point_cloud_voxel_blocks_size_d);  // TODO: Paralellize this somehow
-
-  gpuErrchk( cudaPeekAtLastError() );
   cudaStreamSynchronize(stream);
+  gpuErrchk( cudaPeekAtLastError() );
+  std::cout << "getVoxelBlocks: removeRedundantVoxels" << std::endl;
 
 
   cudaEventRecord(stop);
@@ -1098,6 +1107,7 @@ Vector3f * lidar_position_d, int * lidar_points_size_d){
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   printf("Get Voxel Block Duration: %f\n", milliseconds);
+  std::cout << "getVoxelBlocks: exit" << std::endl;
 }
 
 /**
@@ -1108,6 +1118,7 @@ Vector3f * lidar_position_d, int * lidar_points_size_d){
 * @param block_heap_d block heap on gpu
 */
 void TSDFHandler::allocateVoxelBlocks(Vector3f * lidar_points_d, int * point_cloud_voxel_blocks_size_d, HashTable * hash_table_d, BlockHeap * block_heap_d){
+  std::cout << "allocateVoxelBlocks: start" << std::endl;
 
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -1137,17 +1148,19 @@ void TSDFHandler::allocateVoxelBlocks(Vector3f * lidar_points_d, int * point_clo
   int * unallocated_blocks_size_d;
   cudaMalloc(&unallocated_blocks_size_d, sizeof(unallocated_blocks_size_h));
   cudaMemcpy(unallocated_blocks_size_d, &unallocated_blocks_size_h, sizeof(unallocated_blocks_size_h), cudaMemcpyHostToDevice);
+  std::cout << "allocateVoxelBlocks: memcpy" << std::endl;
 
   int num_cuda_blocks = point_cloud_voxel_blocks_size_h / threads_per_cuda_block + 1;
   //call kernel till all blocks are allocated
   while(unallocated_blocks_size_h > 0){ //POSSIBILITY OF INFINITE LOOP if no applicable space is left for an unallocated block even if there is still space left in hash table
     allocateVoxelBlocksCuda<<<num_cuda_blocks,threads_per_cuda_block, 0, stream>>>(lidar_points_d, hash_table_d, block_heap_d, unallocated_blocks_d, 
       point_cloud_voxel_blocks_size_d, unallocated_blocks_size_d);
-    gpuErrchk( cudaPeekAtLastError() );
     cudaStreamSynchronize(stream);
+    gpuErrchk( cudaPeekAtLastError() );
     cudaMemcpyAsync(&unallocated_blocks_size_h, unallocated_blocks_size_d, sizeof(unallocated_blocks_size_h), cudaMemcpyDeviceToHost, stream);
     cudaStreamSynchronize(stream);
   }
+  std::cout << "allocateVoxelBlocks: allocateVoxelBlocksCuda" << std::endl;
 
   //print total num blocks allocated so far
   printNumAllocatedVoxelBlocksCuda<<<1,1, 0, stream>>>(block_heap_d);
@@ -1161,6 +1174,7 @@ void TSDFHandler::allocateVoxelBlocks(Vector3f * lidar_points_d, int * point_clo
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   printf("Integrate Voxel Block Duration: %f\n", milliseconds);
+  std::cout << "allocateVoxelBlocks: exit" << std::endl;
 }
 
 /**
@@ -1174,6 +1188,7 @@ void TSDFHandler::allocateVoxelBlocks(Vector3f * lidar_points_d, int * point_clo
 */
 void TSDFHandler::getVoxelsAndUpdate(int & num_cuda_blocks, pcl::PointXYZ * lidar_points_d, Vector3f * lidar_position_d, int * lidar_points_size_d, 
 HashTable * hash_table_d, BlockHeap * block_heap_d){
+  std::cout << "getVoxelsAndUpdate: start" << std::endl;
 
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -1182,14 +1197,16 @@ HashTable * hash_table_d, BlockHeap * block_heap_d){
 
   getVoxelsAndUpdateCuda<<<num_cuda_blocks,threads_per_cuda_block, 0, stream>>>(lidar_points_d, lidar_position_d, hash_table_d, block_heap_d, lidar_points_size_d);
   // TODO: Go through and eliminate redundant voxel blocks
-  gpuErrchk( cudaPeekAtLastError() );
   cudaStreamSynchronize(stream);
+  gpuErrchk( cudaPeekAtLastError() );
+  std::cout << "getVoxelsAndUpdate: getVoxelsAndUpdateCuda" << std::endl;
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   printf("Update Voxels Duration: %f\n", milliseconds);
+  std::cout << "getVoxelsAndUpdate: exit" << std::endl;
 }
 
 /**
@@ -1203,6 +1220,7 @@ HashTable * hash_table_d, BlockHeap * block_heap_d){
 */
 void TSDFHandler::retrievePublishableVoxels(Vector3f * lidar_position_d, Vector3f * publish_voxels_pos_h, int * publish_voxels_size_h, Voxel * publish_voxels_data_h, 
 HashTable * hash_table_d, BlockHeap * block_heap_d){
+  std::cout << "retrievePublishableVoxels: start" << std::endl;
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
@@ -1217,6 +1235,7 @@ HashTable * hash_table_d, BlockHeap * block_heap_d){
     publish_voxels_pos_d, publish_voxels_size_d, publish_voxels_data_d);
   gpuErrchk( cudaPeekAtLastError() );
   cudaStreamSynchronize(stream);
+  std::cout << "retrievePublishableVoxels: retrievePublishableVoxelsCuda" << std::endl;
 
   //copy voxel positions to cpu to publish
   cudaMemcpyAsync(publish_voxels_pos_h, publish_voxels_pos_d, sizeof(*publish_voxels_pos_h)*PUBLISH_VOXELS_MAX_SIZE, cudaMemcpyDeviceToHost, stream);
@@ -1225,6 +1244,7 @@ HashTable * hash_table_d, BlockHeap * block_heap_d){
   //copy voxel sdf + weight data to cpu to publish
   cudaMemcpyAsync(publish_voxels_data_h, publish_voxels_data_d, sizeof(*publish_voxels_data_h)*PUBLISH_VOXELS_MAX_SIZE, cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
+  std::cout << "retrievePublishableVoxels: memcpys" << std::endl;
 
   cudaFree(publish_voxels_size_d);
 
@@ -1233,6 +1253,7 @@ HashTable * hash_table_d, BlockHeap * block_heap_d){
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, start, stop);
   printf("Publish Voxels Duration: %f\n", milliseconds);
+  std::cout << "retrievePublishableVoxels: exit" << std::endl;
 
 }
 
@@ -1243,6 +1264,7 @@ HashTable * hash_table_d, BlockHeap * block_heap_d){
 * @param block_heap_d block heap on gpu
 */
 void TSDFHandler::garbageCollectDistantBlocks(Vector3f * lidar_position_d, HashTable * hash_table_d, BlockHeap * block_heap_d){
+  std::cout << "garbageCollectDistantBlocks: start" << std::endl;
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
@@ -1259,6 +1281,7 @@ void TSDFHandler::garbageCollectDistantBlocks(Vector3f * lidar_position_d, HashT
   Vector3f linked_list_garbage_blocks_h[GARBAGE_LINKED_LIST_BLOCKS_MAX_SIZE];
   Vector3f * linked_list_garbage_blocks_d;
   cudaMalloc(&linked_list_garbage_blocks_d, sizeof(*linked_list_garbage_blocks_h)*GARBAGE_LINKED_LIST_BLOCKS_MAX_SIZE);
+  std::cout << "garbageCollectDistantBlocks: mallocs" << std::endl;
 
   //keep track of number of blocks garbage collected
   cudaMemcpyAsync(garbage_collected_blocks_size_d, &garbage_collected_blocks_size_h, sizeof(garbage_collected_blocks_size_h), cudaMemcpyHostToDevice, stream);
@@ -1270,16 +1293,19 @@ void TSDFHandler::garbageCollectDistantBlocks(Vector3f * lidar_position_d, HashT
   cudaMemcpyAsync(linked_list_garbage_blocks_d, linked_list_garbage_blocks_h, sizeof(*linked_list_garbage_blocks_h)*GARBAGE_LINKED_LIST_BLOCKS_MAX_SIZE, cudaMemcpyHostToDevice, stream);
 
   cudaStreamSynchronize(stream);
+  std::cout << "garbageCollectDistantBlocks: memcpys" << std::endl;
 
   int num_cuda_blocks = HASH_TABLE_SIZE / threads_per_cuda_block + 1;
   garbageCollectDistantBlocksCuda<<<num_cuda_blocks, threads_per_cuda_block, 0, stream>>>(lidar_position_d, hash_table_d, block_heap_d, garbage_collected_blocks_size_d, 
     linked_list_garbage_blocks_d, linked_list_garbage_blocks_size_d);
   gpuErrchk(cudaPeekAtLastError());
   cudaStreamSynchronize(stream);
+  std::cout << "garbageCollectDistantBlocks: garbageCollectDistantBlocksCuda" << std::endl;
 
   cudaMemcpyAsync(&garbage_collected_blocks_size_h, garbage_collected_blocks_size_d, sizeof(garbage_collected_blocks_size_h), cudaMemcpyDeviceToHost, stream);
   cudaMemcpyAsync(&linked_list_garbage_blocks_size_h, linked_list_garbage_blocks_size_d, sizeof(linked_list_garbage_blocks_size_h), cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
+  std::cout << "garbageCollectDistantBlocks: memcpys" << std::endl;
 
   //remove blocks to be garbage collected whose hash entries are part of a linked list in the hash table sequentially
   linkedListGarbageCollectCuda<<<1,1, 0, stream>>>(hash_table_d, block_heap_d, linked_list_garbage_blocks_d, linked_list_garbage_blocks_size_d);
@@ -1287,6 +1313,7 @@ void TSDFHandler::garbageCollectDistantBlocks(Vector3f * lidar_position_d, HashT
   cudaStreamSynchronize(stream);
   cudaMemcpyAsync(&linked_list_garbage_blocks_size_h, linked_list_garbage_blocks_size_d, sizeof(linked_list_garbage_blocks_size_h), cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
+  std::cout << "garbageCollectDistantBlocks: linkedListGarbageCollectCuda" << std::endl;
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -1298,6 +1325,7 @@ void TSDFHandler::garbageCollectDistantBlocks(Vector3f * lidar_position_d, HashT
   cudaFree(garbage_collected_blocks_size_d);
   cudaFree(linked_list_garbage_blocks_size_d);
   cudaFree(linked_list_garbage_blocks_d);
+  std::cout << "garbageCollectDistantBlocks: exit" << std::endl;
 }
 
 /**
