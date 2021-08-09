@@ -75,7 +75,6 @@ private:
     TSDFContainer * tsdf_container; //object to hold the hash table and block heap for the tsdf
     Vector3f * publish_voxels_pos_d; //the array to copy back to cpu with voxels positions to publish
     Voxel * publish_voxels_data_d; //the array to copy back to cpu with voxels sdf and weight values to publish
-    cudaStream_t stream; // stream to use
 };
 
 void initGlobalVars(float voxel_size_input, float truncation_distance_input, float max_weight_input, float publish_distance_squared_input, 
