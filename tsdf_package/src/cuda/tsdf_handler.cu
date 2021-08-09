@@ -1130,6 +1130,7 @@ void TSDFHandler::allocateVoxelBlocks(Vector3f * lidar_points_d, int * point_clo
   bool * unallocated_blocks_d;
   cudaMalloc(&unallocated_blocks_d, sizeof(*unallocated_blocks_h)*point_cloud_voxel_blocks_size_h);
   cudaMemcpyAsync(unallocated_blocks_d, unallocated_blocks_h, sizeof(*unallocated_blocks_h)*point_cloud_voxel_blocks_size_h, cudaMemcpyHostToDevice, stream);
+  cudaStreamSynchronize(stream);
 
   //keep track of number of unallocated blocks still left to be allocated
   int unallocated_blocks_size_h = point_cloud_voxel_blocks_size_h;
@@ -1210,6 +1211,7 @@ HashTable * hash_table_d, BlockHeap * block_heap_d){
   int * publish_voxels_size_d; //keep track of # of voxels to publish
   cudaMalloc(&publish_voxels_size_d, sizeof(*publish_voxels_size_h));
   cudaMemcpyAsync(publish_voxels_size_d, publish_voxels_size_h, sizeof(*publish_voxels_size_h), cudaMemcpyHostToDevice, stream);
+  cudaStreamSynchronize(stream);
   int num_cuda_blocks = HASH_TABLE_SIZE / threads_per_cuda_block + 1;
   retrievePublishableVoxelsCuda<<<num_cuda_blocks,threads_per_cuda_block, 0, stream>>>(lidar_position_d, hash_table_d, block_heap_d, 
     publish_voxels_pos_d, publish_voxels_size_d, publish_voxels_data_d);
@@ -1284,6 +1286,7 @@ void TSDFHandler::garbageCollectDistantBlocks(Vector3f * lidar_position_d, HashT
   gpuErrchk(cudaPeekAtLastError());
   cudaStreamSynchronize(stream);
   cudaMemcpyAsync(&linked_list_garbage_blocks_size_h, linked_list_garbage_blocks_size_d, sizeof(linked_list_garbage_blocks_size_h), cudaMemcpyDeviceToHost, stream);
+  cudaStreamSynchronize(stream);
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
