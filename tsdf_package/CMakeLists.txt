@@ -6,16 +6,6 @@ if(NOT CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)
 endif()
 
-## DEBUG
-# set this to path to AirSim root folder if you want your catkin workspace in a custom directory
-set(AIRSIM_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../AirSim/)
-set (common_utility_src ${AIRSIM_ROOT}/ros/src/common)
-
-add_subdirectory("${AIRSIM_ROOT}/cmake/rpclib_wrapper" rpclib_wrapper)
-add_subdirectory("${AIRSIM_ROOT}/cmake/AirLib" AirLib)
-add_subdirectory("${AIRSIM_ROOT}/cmake/MavLinkCom" MavLinkCom)
-## DEBUG
-
 # Default to C++14
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)
@@ -55,11 +45,8 @@ SET(CUDA_NVCC_FLAGS ${ARCH_FLAGS} CACHE STRING "nvcc flags" FORCE)
 cuda_add_library(${PROJECT_NAME}_cuda SHARED
   src/cuda/tsdf_handler.cu
   src/cuda/tsdf_container.cu
-  OPTIONS -g -shared -Xcompiler -fPIC -rdc=true #-Xptxas=-v
+  OPTIONS -g -G -shared -Xcompiler -fPIC -rdc=true #-Xptxas=-v
 )
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-  target_compile_options(${PROJECT_NAME}_cuda PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-G>)
-endif()
 
 ament_target_dependencies(${PROJECT_NAME}_cuda 
   "pcl_conversions"
@@ -107,22 +94,6 @@ target_link_libraries(tsdf_node
   ${tf2_ros_LIBRARIES}
 )
 
-###### DEBUGGING
-include_directories(
-        include
-        ${AIRSIM_ROOT}/AirLib/deps/eigen3
-        ${AIRSIM_ROOT}/AirLib/include
-        ${RPC_LIB_INCLUDES}
-        ${AIRSIM_ROOT}/MavLinkCom/include
-        ${AIRSIM_ROOT}/MavLinkCom/common_utils
-        ${OpenCV_INCLUDE_DIRS}
-        ${Boost_INCLUDE_DIRS}
-        ${common_utility_src}
-)
-add_executable(test_node src/test.cpp)
-target_link_libraries(test_node AirLib tsdf_node)
-### DEBUG
-
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
@@ -135,7 +106,7 @@ if(BUILD_TESTING)
 endif()
 
 install(
-  TARGETS tsdf_node ${PROJECT_NAME}_cuda test_node ## DEBUGGING: Remove last node when done
+  TARGETS tsdf_node ${PROJECT_NAME}_cuda
   EXPORT export_tsdf_node
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
