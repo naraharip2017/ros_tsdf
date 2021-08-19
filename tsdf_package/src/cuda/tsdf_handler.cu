@@ -701,6 +701,8 @@ void getVoxelsAndUpdateCuda(pcl::PointXYZ * lidar_points, Vector3f * lidar_posit
   //update the voxels sdf and weight values processing traversed voxels in parallel
   int num_cuda_blocks = *voxels_traversed_size/threads_per_cuda_block + 1;
   updateVoxelsCuda<<<num_cuda_blocks, threads_per_cuda_block>>>(voxels_traversed, hash_table, block_heap, lidar_point_p, lidar_position, voxels_traversed_size);
+
+  cudaDeviceSynchronize();
   cdpErrchk(cudaPeekAtLastError());
 
   cudaFree(lidar_point_p);
@@ -956,7 +958,7 @@ TSDFHandler::TSDFHandler(){
   tsdf_container = new TSDFContainer();
   cudaMalloc(&publish_voxels_pos_d, sizeof(Vector3f)*PUBLISH_VOXELS_MAX_SIZE);
   cudaMalloc(&publish_voxels_data_d, sizeof(Voxel)*PUBLISH_VOXELS_MAX_SIZE);
-  cudaStreamCreateWithPriority(&stream, cudaStreamDefault, 1);
+  cudaStreamCreateWithPriority(&stream, cudaStreamNonBlocking, 1);
 }
 
 TSDFHandler::~TSDFHandler(){
